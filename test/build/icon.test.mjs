@@ -1,5 +1,5 @@
 // 安装包、exe 的图标指到 build/icon.ico，nsis 装卸两个图标同一个；
-// icon.ico 由 build/make-icon.py 拼出五档。
+// icon.ico 由 build/make-icon.py 画出 16 到 256 八档。
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -39,6 +39,6 @@ test('win.icon 和 nsis 的装卸图标都是 build/icon.ico，文件在且是�
   }
 })
 
-test('ico 含 16/24/32/48/256 五档（make-icon.py 拼的）', () => {
-  assert.deepEqual(icoSizes(join(root, 'build/icon.ico')), ['16x16', '24x24', '32x32', '48x48', '256x256'])
+test('ico 含 16 到 256 八档（make-icon.py 画的）', () => {
+  assert.deepEqual(icoSizes(join(root, 'build/icon.ico')).sort((a, b) => parseInt(a) - parseInt(b)), ['16x16', '20x20', '24x24', '32x32', '40x40', '48x48', '64x64', '256x256'])
 })

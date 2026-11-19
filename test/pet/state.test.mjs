@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { clearAsk, createState, reduce } from '../../app/pet/state.mjs'
+import { clearHeld, createState, heldTask, reduce } from '../../app/pet/state.mjs'
 
 const at = 1
 
@@ -31,7 +31,8 @@ test('做完了：笑眼，一直保持到点开小岛', () => {
   const done = reduce(createState(), { type: 'end', taskId: 't1', at, status: 'done' })
   assert.equal(done.state.mode, 'done')
   assert.equal(done.hold, true)
-  assert.equal(done.state.notice, '做完了')
+  // 通知正文跟小岛悬停那行同一句（状态码 St705）
+  assert.equal(done.state.notice, '做完了！')
   const cancelled = reduce(done.state, { type: 'end', taskId: 't1', at, status: 'cancelled' })
   assert.equal(cancelled.state.mode, 'idle')
   assert.equal(cancelled.hold, false)
@@ -46,7 +47,8 @@ test('没干成是平线，不是等你说话', () => {
   assert.equal(ended.state.mode, 'fail')
   assert.equal(ended.state.message, '没写成')
   const fallback = reduce(createState(), { type: 'end', taskId: 't1', at, status: 'error' })
-  assert.equal(fallback.state.message, '这次没做成')
+  // 什么都没带：状态码 St706
+  assert.equal(fallback.state.message, '出错了！')
 })
 
 test('它问你一句：要你看一眼', () => {
@@ -60,18 +62,42 @@ test('它问你一句：要你看一眼', () => {
   assert.equal(withNotice.state.message, '要不要再短一点？')
 })
 
+test('有任务在等确认：小岛说「等你确认」', () => {
+  const step = reduce(createState(), { type: 'confirm', taskId: 't1', at, message: '等你确认' })
+  assert.equal(step.state.mode, 'confirm')
+  assert.equal(step.state.message, '等你确认')
+  assert.equal(step.hold, true)
+  // 点小岛交给任务窗的是那一轮的 taskId
+  assert.deepEqual(heldTask(step.state), { taskId: 't1' })
+  // 用户点了以后回到干活中
+  const back = reduce(step.state, { type: 'progress', taskId: 't1', at, text: '' })
+  assert.equal(back.state.mode, 'work')
+})
+
 test('开任务窗：做完了、要你看一眼、没干成都收回去，干活中不动', () => {
   const fail = reduce(createState(), { type: 'error', taskId: 't1', at, message: '看一眼' }).state
-  assert.equal(clearAsk(fail).mode, 'idle')
+  assert.equal(clearHeld(fail).mode, 'idle')
   const done = reduce(createState(), { type: 'end', taskId: 't1', at, status: 'done' }).state
-  assert.equal(clearAsk(done).mode, 'idle')
+  assert.equal(clearHeld(done).mode, 'idle')
   const look = reduce(createState(), { type: 'ask', taskId: 't1', at, message: '要不要？' }).state
-  assert.equal(clearAsk(look).mode, 'idle')
+  assert.equal(clearHeld(look).mode, 'idle')
   const working = reduce(createState(), { type: 'progress', taskId: 't1', at, text: '在写' }).state
-  assert.equal(clearAsk(working), working)
+  assert.equal(clearHeld(working), working)
 })
 
 test('换个任务号也算开工了', () => {
   const step = reduce(createState(), { type: 'tick', taskId: 't9', at })
   assert.equal(step.state.mode, 'work')
+})
+
+test('点小岛交给任务窗的：停在做完了 / 要你看一眼 / 没干成时是那一轮的 taskId，别的时候不带', () => {
+  const done = reduce(createState(), { type: 'end', taskId: 'a', at, status: 'done' }).state
+  assert.deepEqual(heldTask(done), { taskId: 'a' })
+  const look = reduce(createState(), { type: 'ask', taskId: 'b', at, message: '要不要？' }).state
+  assert.deepEqual(heldTask(look), { taskId: 'b' })
+  const fail = reduce(createState(), { type: 'error', taskId: 'c', at, message: '坏了' }).state
+  assert.deepEqual(heldTask(fail), { taskId: 'c' })
+  assert.equal(heldTask(reduce(createState(), { type: 'progress', taskId: 'd', at, text: '' }).state), undefined)
+  assert.equal(heldTask(createState()), undefined)
+  assert.equal(heldTask(clearHeld(done)), undefined)
 })

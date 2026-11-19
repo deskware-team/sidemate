@@ -1,0 +1,13 @@
+# acp 配置不带交稿工具（sdk 才带）。照上游 packages/bundle/sdk-app/cordis.patch.yml 挂上：
+# present 是模型交稿用的工具（声明哪几份文件是成品，卡上写「文件生成」），
+# file-reference-local 让模型能按名字在工作区里找文件，
+# deliverable-file-references 是交稿的规矩（哪些用 present、哪些在回话里说）。
+- insert:
+    - id: present
+      name: '@deepseek-ai/dsh-tool-present'
+
+    - id: file-reference-local
+      name: '@deepseek-ai/dsh-file-reference-local'
+
+    - id: deliverable-file-references
+      name: '@deepseek-ai/dsh-deliverable-file-references'

@@ -12,6 +12,7 @@ export const BASE = {
   eyeGap: 20, // 两只眼睛中心差
   eyeY: 15, // 眼睛中心的 y
   eyeRadius: 5.3, // 待命的圆眼半径
+  lineHeight: 4, // 收成细线时那根线的高（跟小岛大小那档一起缩放）
   zoneGap: 8, // 两区之间的空
   padRight: 16, // 右边留 16
   textPad: 8, // 文字区里左右各留 8，字在中间
@@ -34,6 +35,8 @@ export function layoutFor(fontSize = BASE.font) {
     eyeShift: (BASE.island - BASE.eyeZone) / 2,
     eyeGap: BASE.eyeGap * scale,
     eyeRadius: BASE.eyeRadius * scale,
+    // 细线那根线的高：跟小岛大小那档一起缩放（1:1 是 4）
+    lineHeight: px(BASE.lineHeight),
     zoneGap: px(BASE.zoneGap),
     padRight: px(BASE.padRight),
     textPad: px(BASE.textPad),
@@ -43,6 +46,19 @@ export function layoutFor(fontSize = BASE.font) {
     dotSize: 6 * scale,
     bubbleHardMax: px(BASE.bubbleHardMax),
   }
+}
+
+// 看得见的小条有多高：底色只画主题那么高，窗被 Windows 垫出来的那一截是透明的
+// （接文件时小岛只往两边长，高度也是主题那么高）。
+// 收成细线时墨色只画那根线那么高（细线状态窗也被垫高，铺满整窗就是顶上挂一块黑）。
+export function visibleStripHeight(windowHeight, themeHeight, scene = 'strip', lineHeight = 0) {
+  const height = Number(windowHeight) || 0
+  const theme = Number(themeHeight) || 0
+  if (scene === 'line') {
+    const line = Number(lineHeight) || 0
+    return line ? Math.min(height, line) : height
+  }
+  return Math.min(height, theme)
 }
 
 // 文字区有多宽：跟着字走，左右各留 8，字在中间

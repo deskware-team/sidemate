@@ -109,7 +109,6 @@ async function once(prompt, extra = {}) {
     lowRoot,
     prompt,
     apiKey: key,
-    stallMs: extra.stallMs ?? 240_000,
     searchBaseUrl: extra.searchBaseUrl,
     onEvent: (event) => {
       events.push(event)

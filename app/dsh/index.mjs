@@ -1,20 +1,43 @@
-import { spawn } from 'node:child_process'
-import { appendFileSync, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, statSync, symlinkSync } from 'node:fs'
-import { homedir } from 'node:os'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { appendFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { deskRoot } from '../workspace/index.mjs'
+import { hasChoice, pickEffort } from './models.mjs'
+import { maskSecrets } from './secrets.mjs'
+import { reasonForDsh, statusOf } from '../task/codes.mjs'
+import { writeAgentsGuide } from './agents-guide.mjs'
+import { failText, progressText } from './progress.mjs'
+import { createPulse } from './pulse.mjs'
+import { readTokenUsage, sleep, usageCaughtUp } from './usage.mjs'
+import { readTitle } from './title.mjs'
+import { runtimeCarrier } from './proc.mjs'
+import { RETRY_FILE_ENV, writeRetryPlugin } from './retry-plugin.mjs'
+import { MODE_METHOD, QUIET_TITLE_METHOD, STEER_METHOD, plainLogText, writeSteerPlugin } from './steer-plugin.mjs'
+import { createFileWatcher } from './artifacts.mjs'
+import { fileBlocks, fileLink, presentedFiles } from './prompt-files.mjs'
+import { createPermissionDesk, permissionReason, permissionTarget } from './permission.mjs'
+import { keyEnv, redact, routeOf, secretList } from './secrets.mjs'
+import { startSweep, sweepPending } from './temp-sweep.mjs'
+import { appPaths, appRoot } from '../paths.mjs'
+import { daemonFor, daemonOf, extraEnv, rememberEnv, replaceEnv, restartDaemon as restartDaemonFor, setEnvProvider, setResidentBuild, stopAllDaemons, writeGlobalPatch } from './daemon.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const repo = resolve(here, '..', '..')
 
-// 假服务一轮不到 1 秒。真模型事件空档大约 22 秒，搜索工具自己的时限是 60 秒。
-// 90 秒只提示、十分钟才停：dsh 的 5 分钟是模型流空闲（吐字就重计），这里量的是 stdout 沉默，
-// 一步没写完不出声，所以要留得比最长一步还长。
-export const DEFAULT_STALL_MS = 600_000
-export const DEFAULT_STALL_HINT_MS = 90_000
+// 模型多久不吐字、工具多久跑不完都由 dsh 自己管（流空闲时限、工具时限，到了它自己重试）。
+// 桌伴不另外掐表；静了多久界面上自己说（./pulse.mjs）。
 export const DEFAULT_BASE_URL = 'https://api.deepseek.com/anthropic'
 const USAGE_WAIT_MS = 3_000
+// 头一轮收尾时 dsh 起名字那次调用可能还在路上（跟干活那次同时发的）：最多再等这么久，
+// 杀了 dsh 它就再也不起了（只有第一句话会起名字）
+const TITLE_WAIT_MS = 2_000
+// 起来时收拾临时目录（./temp-sweep.mjs）最多等这么久：真卡住了也不能让活一直起不来。
+// 等不到就照起：收拾只删放了一天以上的，新起的 dsh 刚建的东西本来也碰不到
+const SWEEP_WAIT_MS = 10_000
+// dsh 最后那次失败（码、HTTP 状态、原文）是插件写来的一行，桌伴这边隔一会儿才读到：
+// 最多等这么久就当没有（报错还是报，只是没有 dsh 的码）
+const FAILURE_WAIT_MS = 2_000
+// 刚保存的设置还没热加载完时，切模型会报「不认这个模型选项」：等它把模型选项刷新一遍再试一次，最多等这么久。
+const MODEL_WAIT_MS = 10_000
 
 const KEEP_ENV = [
   'PATH', 'HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'LANG', 'LC_ALL', 'TZ',
@@ -24,23 +47,9 @@ const KEEP_ENV = [
 
 const ZERO = { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }
 
-const SAY = {
-  key: '没干成：模型那边说 key 不对',
-  quota: '没干成：模型那边余额不够',
-  busy: '没干成：模型那边太忙',
-  network: '没干成：连不上模型那边',
-  stall: '十分钟没动静，已经先停了',
-  stallHint: '这一步要写的东西比较长，还在等它写完；不想等可以点停下。',
-  crashStart: '没干成：后台程序没起来',
-  crashExit: '没干成：后台程序中途退出了',
-  other: '没干成，原因记在日志里',
-}
-
-export function lowDir() {
-  if (process.platform === 'win32') {
-    return join(process.env.USERPROFILE || homedir(), 'AppData', 'LocalLow', '桌伴')
-  }
-  return join(homedir(), '.local', 'share', '桌伴')
+// 桌伴给 dsh 用的那一层根（默认程序数据根）：dsh 的家、临时目录、全局说明都在它下面
+function dshRootOf(options) {
+  return options.lowRoot ?? appRoot()
 }
 
 export function payloadLayout(root = join(repo, 'payload')) {
@@ -57,12 +66,15 @@ export function patchFiles() {
   const files = [
     join(here, 'office.patch.yml'),
     join(here, 'skill.patch.yml'),
-    join(here, 'word-skill.patch.yml'),
-    join(here, 'never.patch.yml'),
+    join(here, 'skill-dirs.patch.yml'),
+    join(here, 'ask.patch.yml'),
     join(here, 'title.patch.yml'),
     join(here, 'rules.patch.yml'),
+    join(here, 'present.patch.yml'),
+    join(here, 'cache.patch.yml'),
+    join(here, 'safety.patch.yml'),
+    join(here, 'privacy.patch.yml'),
   ]
-  if (process.platform === 'win32') files.push(join(here, 'ps51.patch.yml'))
   return files
 }
 
@@ -74,194 +86,281 @@ function keptEnv() {
   return env
 }
 
-function redact(text, secret) {
-  if (!secret || !text) return text ?? ''
-  return String(text).split(secret).join('***')
+// 模型写的脚本里直接敲 python：dsh 起 PowerShell / Python 时 PATH 原样往下传，
+// 不改的话找到的是用户机器上自己装的 Python（没有 python-docx 这些），或者应用商店那个空壳。
+// 随包 Python 排最前面（Windows 上连它的 Scripts），原来的 PATH 接在后面。
+// dsh 自己的 load_workspace_dependencies 给的是绝对路径，不看 PATH。
+// py 启动器管不了：它只认装在系统里的 Python，所以干活规矩里让模型用 python（rules.patch.yml）。
+function scriptPath(pythonRoot) {
+  const dirs = process.platform === 'win32' ? [pythonRoot, join(pythonRoot, 'Scripts')] : [join(pythonRoot, 'bin')]
+  if (process.env.PATH) dirs.push(process.env.PATH)
+  return dirs.join(delimiter)
 }
 
-function toolHint(update) {
-  const input = update.rawInput && typeof update.rawInput === 'object' ? update.rawInput : {}
-  const raw = input.file_path || input.path || input.query || ''
-  if (typeof raw !== 'string' || raw === '') return ''
-  return basename(raw)
+// 桌伴起来时收拾一次 dsh 的临时目录（./temp-sweep.mjs）。不等它：不耽误桌伴起来、小岛出来。
+export function startTempSweep() {
+  return startSweep({ dir: appPaths().temp })
 }
 
-export function progressText(update) {
-  if (update.sessionUpdate !== 'tool_call') return ''
-  const name = update.title || ''
-  const hint = toolHint(update)
-  if (name === 'web_search') return '正在查资料'
-  if (name === 'web_fetch') return '正在打开网页'
-  if (name === 'write' || name === 'edit') return hint ? `正在写 ${hint}` : '正在写文件'
-  if (name === 'read') return hint ? `正在看 ${hint}` : '正在看文件'
-  if (name === 'load_workspace_dependencies') return '正在准备写文件'
-  return hint ? `正在处理 ${hint}` : '正在干活'
+// 桌伴退出时把常驻的 dsh 进程收掉。
+export function stopDaemon() {
+  stopAllDaemons()
 }
 
-// ACP 只把对方的 message 原文包进 turn failed。下面这些字是 401 / 402 / 429 / 500 / 连不上各自打出来的。
-export function classifyFailure(text) {
-  const raw = text || ''
-  if (/transport failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ECONNRESET|fetch failed|socket hang up/i.test(raw)) return 'network'
-  if (/authentication|api key|unauthorized|\b401\b|\b403\b/i.test(raw)) return 'key'
-  if (/insufficient[\s_-]+(?:quota|balance|credits?)|(?:balance|credits?)[\s_-]+(?:exhausted|depleted)|\b402\b/i.test(raw)) return 'quota'
-  if (/rate limit|\b429\b|too many requests|overloaded|internal server error|\b50[0234]\b/i.test(raw)) return 'busy'
-  return 'other'
+// 桌伴起来时把常驻的 dsh 进程起起来（临时目录收拾完再起）。
+// 这个进程一直留着：任务和新闻都在它上面跑。
+export function startDaemon() {
+  const home = appRoot()
+  const dshHome = join(home, 'dsh')
+  // 常驻进程怎么起：收掉之后（重起、换环境）照这个补一个新的，不用等下一个任务
+  const build = () => {
+    // 现在的钥匙（设置那边刚改的）记到这个 dsh 家的账上：起进程时用它
+    const current = extraEnv()
+    if (Object.keys(current).length > 0) replaceEnv(dshHome, current)
+    return dshLaunch({ lowRoot: home, taskId: 'daemon' })
+  }
+  setResidentBuild(dshHome, build)
+  const daemon = daemonFor(dshHome, build, { resident: true })
+  daemon.hold()
+  return daemon.start().catch(() => null)
 }
 
-function walkFiles(dir, out = []) {
-  let names
+// 各家的模型钥匙交给常驻进程：一个进程上跑好几个会话，几条线路的钥匙都得在。
+export function setDaemonEnvProvider(fn) {
+  setEnvProvider(fn)
+}
+
+// 设置里改了模型或开关：整份重写 dsh 的全局配置，不用重启 dsh
+// （dsh 的热加载盯着那个文件：正在说的那句用老配置、下一句用新的）。
+export function writeGlobalConfig(texts) {
+  const dshHome = join(appRoot(), 'dsh')
+  return writeGlobalPatch(dshHome, texts)
+}
+
+// 重起常驻的 dsh 进程：钥匙换了、看图模型变了、热加载没成的时候用。
+// 没人用就当场收掉（新的常驻进程马上补上，带新的环境）；有人用就等它闲下来再收。
+export function restartDaemon() {
+  const dshHome = join(appRoot(), 'dsh')
+  // 还没有常驻进程：直接起一个
+  if (!daemonOf(dshHome)) {
+    void startDaemon()
+    return true
+  }
+  return restartDaemonFor(dshHome)
+}
+
+// 常驻进程现在的样子：有没有开着会话、热加载刷过几次（写完配置等它报一声）
+export function daemonState() {
+  const daemon = daemonOf(join(appRoot(), 'dsh'))
+  if (!daemon) return { running: false, sessions: 0, configStamp: 0 }
+  return { running: daemon.dead !== true, sessions: daemon.sessions?.size ?? 0, configStamp: daemon.configStamp }
+}
+
+// acp 那一行的模型：已配好的模型里第一个能看图的；没有就默认模型。
+// 这一条连接能不能收图片是连接级的（dsh-acp 在 initialize 时按这一行算一次），
+// 桌伴里只有一条连接，所以这一行在起进程时定好，不跟着一轮任务变。
+// 规则本身在 app/models/global.mjs（照模型清单里的看图标记判断），桌伴把结果交给这里。
+let acpRouteProvider = null
+
+export function setAcpRouteProvider(fn) {
+  acpRouteProvider = typeof fn === 'function' ? fn : null
+}
+
+export function acpRoute() {
   try {
-    names = readdirSync(dir)
+    const one = acpRouteProvider?.()
+    if (one && typeof one.provider === 'string' && one.provider && typeof one.model === 'string' && one.model) return one
   } catch {
-    return out
+    // 算不出来就照原来那行
   }
-  for (const name of names) {
-    if (name.startsWith('.')) continue
-    const path = join(dir, name)
-    let st
-    try {
-      st = statSync(path)
-    } catch {
-      continue
-    }
-    if (st.isDirectory()) walkFiles(path, out)
-    else if (st.isFile()) out.push(path)
-  }
-  return out
+  return null
 }
 
-function killTree(child) {
-  const pid = child?.pid
-  if (!pid) return
-  if (process.platform === 'win32') {
-    const killer = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
-    killer.on('error', () => {
-      // a missing taskkill must not take the shell down
-    })
-    return
-  }
-  try {
-    process.kill(-pid, 'SIGKILL')
-  } catch {
-    try {
-      process.kill(pid, 'SIGKILL')
-    } catch {
-      // already gone
-    }
-  }
-}
-
-function runtimeCarrier(pythonRoot, dest) {
-  const manifest = join(pythonRoot, 'runtime.json')
-  if (!existsSync(manifest)) return pythonRoot
-  const link = join(dest, 'dependencies', 'python')
-  mkdirSync(join(dest, 'dependencies'), { recursive: true })
-  if (!existsSync(link)) symlinkSync(pythonRoot, link, process.platform === 'win32' ? 'junction' : 'dir')
-  else if (!lstatSync(link).isSymbolicLink() && process.platform !== 'win32') return pythonRoot
-  copyFileSync(manifest, join(dest, 'runtime.json'))
-  return dest
-}
-
-// 用量文件和边界是同一时刻的快照：tokenUsage 是数，turnBoundary 说这份是不是这一轮 turn/end 之后写的。
-function readTokenUsage(dshHome, sessionId) {
-  const path = join(dshHome, 'storages', 'session_projcache', 'sessions', `${sessionId}.json`)
-  try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8'))
-    const rows = parsed.record?.rows ?? parsed.rows
-    if (!rows) return undefined
-    return { token: rows.tokenUsage?.val, boundary: rows.turnBoundary?.val }
-  } catch {
-    return undefined
-  }
-}
-
-// 跟上了 = turn/end 之后写的那份：openTurnStartSeq 归空，且轮号已经过了起点。
-// 老版本 dsh 没有 turnBoundary 这行，只能照旧看 tokenUsage.last.turn。
-function usageCaughtUp(rows, startTurn) {
-  const boundary = rows?.boundary
-  if (boundary) return boundary.openTurnStartSeq === null && (boundary.lastTurn ?? 0) > startTurn
-  return (rows?.token?.last?.turn ?? 0) > startTurn
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms))
-}
-
+// 起常驻的 dsh 进程：桌伴里只有一个 dsh 进程，任务和新闻都在它上面跑。
+// 插件（插话、模式、重试播报）起进程时只装一次；会变的配置（模型路线、联网、技能开关）
+// 整份写在 <dsh 家>/cordis.patch.yml，dsh 的热加载盯着这个文件。
 export function dshLaunch(options) {
   const layout = payloadLayout(options.payloadRoot)
-  const home = options.lowRoot ?? lowDir()
+  const home = dshRootOf(options)
   const dshHome = join(home, 'dsh')
+  const temp = options.tempDir ?? join(home, 'temp')
+  // 重试播报的文件：一个常驻进程一份，所有会话的行都带会话号
+  const retryFile = join(temp, 'retry-daemon.log')
+  try {
+    mkdirSync(temp, { recursive: true })
+    rmSync(retryFile, { force: true })
+  } catch {
+    // 目录写不动：这一轮没有重试播报（模型照样跑，只是等待行不出）
+  }
   // dsh 默认还会扫用户自己的 ~/.agents（技能目录和 AGENTS.md）。指到桌伴自己的 agents 目录，
-  // 用户装给别的 AI 工具用的东西就进不来。起进程前确保它存在，里面不放东西。
+  // 用户装给别的 AI 工具用的东西就进不来。起进程前确保它存在，并写一份桌伴自己的 AGENTS.md。
   const agentsHome = join(home, 'agents')
   mkdirSync(agentsHome, { recursive: true })
-  const temp = join(home, 'temp')
+  writeAgentsGuide(agentsHome)
   const env = {
     ...keptEnv(),
+    PATH: scriptPath(layout.python),
     // 随包 Python 在 PowerShell 5.1 的管道里默认按 GBK 输出，中文全是乱码。盖住用户机器上可能有的同名变量。
     PYTHONIOENCODING: 'utf-8',
     PYTHONUTF8: '1',
-    DEEPSEEK_API_KEY: options.apiKey,
     DEEPSEEK_BASE_URL: options.baseUrl ?? DEFAULT_BASE_URL,
     DSH_HOME: dshHome,
     DSH_AGENTS_HOME: agentsHome,
     DSH_PRIMARY_RUNTIME: runtimeCarrier(layout.python, join(home, 'runtime')),
     DSH_SKILL_DIR: join(repo, 'app', 'skills'),
-    // 用户自己的技能放 ~/桌伴/技能。目录还没有时 dsh 只当它是空的（缺目录是合法的空状态），不报错。
-    DSH_USER_SKILL_DIR: join(deskRoot(), '技能'),
+    // 用户自己的技能放程序数据目录下的 skills\。目录还没有时 dsh 只当它是空的（缺目录是合法的空状态），不报错。
+    DSH_USER_SKILL_DIR: appPaths(home).skills,
     TEMP: temp,
     TMP: temp,
     DSH_TELEMETRY_MODE: 'DISABLED',
     DSH_TELEMETRY_DISABLED: '1',
+    // dsh 自己重试的时候，那个小插件把每次重试（种类、第几次、等几秒）写到这个文件，
+    // 桌伴一行一行读（见 app/dsh/retry-plugin.mjs）。
+    [RETRY_FILE_ENV]: retryFile,
   }
-  if (options.searchBaseUrl) env.DEEPSEEK_SEARCH_BASE_URL = options.searchBaseUrl
+  // 钥匙只在真有的时候才进环境：空值完全不设，不放假值。
+  if (typeof options.apiKey === 'string' && options.apiKey !== '') env.DEEPSEEK_API_KEY = options.apiKey
+  Object.assign(env, keyEnv(options.env))
+  // 一个进程上跑好几个会话，各家线路的钥匙都得在：桌伴把全部钥匙交给这里（app/main/main.mjs）。
+  for (const [name, value] of Object.entries(extraEnv())) {
+    if (typeof value === 'string' && value !== '') env[name] = value
+  }
+  // 插话用的插件：起进程前按 payload 的实际位置写一份到用户目录下，补丁挂在最后（后面的盖前面的）。
+  // 写不动（目录不可写）就当没有插话功能：这一轮照常跑。
+  // 插件起不来就是程序崩溃（Si301），不偷偷去掉它重起。
+  // 插件行的模型：桌伴自己那条规则算出来的那一个（能看图的第一个；没有就默认模型）。
+  // 算不出来就用原来那行。
+  const acp = acpRoute() ?? { provider: options.steerProvider, model: options.steerModel }
+  const steer = writeSteerPlugin({
+    home,
+    payloadRoot: layout.root,
+    config: { provider: acp?.provider, model: acp?.model },
+  })
+  // 重试播报的插件：源码现在生成，写进用户目录下的 patches/，跟插话插件一个路子。
+  // 写不动就当没有播报：这一轮照常跑，等待行只是不出。
+  const retry = writeRetryPlugin({ home })
+  const patches = []
+  if (steer) patches.push(writeOne(home, 'sidemate-steer.patch.yml', steer.patchText))
+  if (retry) patches.push(writeOne(home, 'sidemate-retry.patch.yml', retry.patchText))
   return {
     command: options.node || layout.node,
-    args: [layout.dsh, '--profile', 'acp', ...patchFiles().flatMap(file => ['--patch', file])],
+    args: [layout.dsh, '--profile', 'acp', ...patchFiles().flatMap(file => ['--patch', file]), ...patches.flatMap(file => ['--patch', file])],
     env,
-    cwd: options.workspace,
+    cwd: home,
     home,
     dshHome,
     agentsHome,
     temp,
-    logPath: join(home, 'logs', `${String(options.taskId).replace(/[^\w.-]+/g, '_')}.log`),
+    patches,
+    steer,
+    retry,
+    retryFile,
+    logPath: join(home, 'logs', `${String(options.taskId ?? 'task').replace(/[^\w.-]+/g, '_')}.log`),
   }
 }
 
+// 全局配置：模型路线、联网、技能开关这些会变的，整份写进 dsh 的家。
+// dsh 的热加载盯着那个文件，改了整份重写。
+
+// 一份补丁写成一个文件（名字固定：常驻进程只装一次）
+function writeOne(home, name, text) {
+  mkdirSync(join(home, 'patches'), { recursive: true })
+  const path = join(home, 'patches', name)
+  writeFileSync(path, text, 'utf8')
+  return path
+}
+
+// 起一轮 dsh。起来时那次收拾还没完就先等它（最多 SWEEP_WAIT_MS），免得新起的 dsh 的东西赶上被收拾；
+// handle 先交出去：等的这一会儿点停下照样管用，插话照样排队。
+  // options.patchTexts（这一轮带来的模型路线那些）不写全局配置：那份文件只有设置那边写，
+// 两个任务同时跑的时候各写各的会互相覆盖。线路、联网、技能开关都在全局配置里。
 export function runTask(options = {}) {
+  const gate = sweepPending()
+  if (!gate) return startRun(options)
+  let real = null
+  let cancelled = false
+  let resolveDone
+  const done = new Promise(resolve => { resolveDone = resolve })
+  // 计时器 unref：收拾早就完了的时候，别让它拖着进程不退
+  const cap = new Promise(resolve => setTimeout(resolve, options.sweepWaitMs ?? SWEEP_WAIT_MS).unref())
+  const waited = Promise.race([gate, cap])
+  void waited.then(() => {
+    if (cancelled) return
+    real = startRun(options)
+    real.done.then(resolveDone)
+  })
+  return {
+    get pid() { return real?.pid },
+    get sessionId() { return real ? real.sessionId : options.sessionId },
+    get logPath() { return real?.logPath ?? '' },
+    done,
+    cancel() {
+      if (real) return real.cancel()
+      if (cancelled) return
+      cancelled = true
+      const end = { type: 'end', taskId: options.taskId, at: Date.now(), status: 'cancelled' }
+      options.onEvent?.(end)
+      resolveDone(end)
+    },
+    steer: (text, files) => (real ? real.steer(text, files) : Promise.resolve({ ok: false, mode: 'queue' })),
+    // 权限申请回话：真的 dsh 起来了就转给它，还没起来就当没回（用户点了不会卡死）
+    answerPermission: (id, decision) => (real ? real.answerPermission(id, decision) : Promise.resolve({ ok: false })),
+  }
+}
+
+function startRun(options = {}) {
   const taskId = options.taskId
-  const secret = options.apiKey
-  const stallMs = options.stallMs ?? DEFAULT_STALL_MS
-  const stallHintMs = options.stallHintMs ?? DEFAULT_STALL_HINT_MS
+  const secrets = secretList(options)
   let settled = false
   let resolveDone
   const done = new Promise(resolve => { resolveDone = resolve })
-  const seen = new Map()
-  let child
+  let watcher = null // 这一轮动过的文件（./artifacts.mjs）
   let sessionId = options.sessionId
-  let stall
-  let stallHint
-  let hinted
-  let spoken
   let logPath = ''
   let dshHome = ''
   let searches = 0
-  let replyId
-  const replyParts = []
-  const pending = new Map()
-  let seq = 0
-  let buffer = ''
+  let lastFailure = null // dsh 最后那次模型请求失败：码、HTTP 状态、原文（重试插件从 turn/end 带来的）
+  let failureWaiter = null // 等那一行的人
+  let lastConfigOptions = null // 这个会话最近一次的模型选项（热加载完了 dsh 会报一声）
+  let configStamp = 0 // 模型选项刷新的次数：等的时候只认新来的那一次
+  let configWaiter = null // 等模型选项刷新的人
+  let titled = '' // dsh 起好的任务名：报过一次就不再报同一个
+  // 模型这一轮说的话先攒着，等这一轮收场时才发出去：
+  // 工具调用之前的那些是动手前的过程话，不算回答；只有最后一次工具调用之后的那段（没有工具调用就是全部）算回答。
+  let replyText = ''
+  // 开工时（还有用户插话以后）模型动手前说的头一句（「好的，我先读这两份文件」）：
+  // 当一个回话气泡先冒出来，用户马上知道它收到了、打算怎么干；后面每一步的过程话照旧不出
+  let ackPending = true
+  // 工具调用编号 → 工具名：工具失败时要说出是哪个工具没调通
+  const toolNames = new Map()
+  let daemon = null
+  let release = null
+  let offSink = null
+  let pidValue = 0
+  // 新闻那一轮（title: false）：权限申请桌伴直接回拒绝，名字用不上
+  const news = options.title === false
   const handle = {
-    pid: undefined,
+    // 常驻进程的编号：dsh 还没起来时是空的。起来了就一直记着（进程收掉了也还记得）
+    get pid() {
+      const now = daemon?.pid || 0
+      if (now) pidValue = now
+      return pidValue
+    },
     sessionId,
     logPath: '',
     done,
-    cancel() {
+    cancel(note = '') {
       if (settled) return
-      if (sessionId) send({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } })
+      perms.cancel()
+      // 停下是 session/cancel，不是杀进程：别的会话还在这个进程上跑。
+      // session/cancel 是通知（不带 id）：按请求发的话 dsh 回「method not found」，那一轮停不下来。
+      if (sessionId && daemon) daemon.send({ jsonrpc: '2.0', method: 'session/cancel', params: { sessionId } })
       writeLog('cancel')
-      finish('cancelled')
+      finish('cancelled', null, note)
     },
+    steer: (text, files) => steerText(text, files),
+    // 权限申请回话：允许一次 / 本任务都允许 / 拒绝
+    answerPermission: (id, decision) => perms.answer(id, decision),
   }
 
   const emit = (event) => {
@@ -269,9 +368,36 @@ export function runTask(options = {}) {
     options.onEvent?.(full)
     return full
   }
+  const pulse = createPulse({ emit, quietMs: options.quietMs, tickMs: options.pulseTickMs }) // 状态行上「模型在不在动」（./pulse.mjs）
+
+  // 模型那边失败了：dsh 的码、HTTP 状态和报错原文（打码）带出去，
+  // 壳照 dsh 的码挑停下那句、显示那一行（app/task/codes.mjs）
+  const failureOf = (reason, detail, failure) => ({
+    reason,
+    detail,
+    raw: maskSecrets(redact(failure?.message || detail, secrets)),
+    dshCode: failure?.code || '',
+    status: statusOf(failure, detail),
+    route: routeOf(options),
+  })
+
+  // 等 dsh 最后那次失败的码：插件写来的一行，桌伴这边过一会儿才读得到
+  const waitFailure = (limitMs = FAILURE_WAIT_MS) => {
+    if (lastFailure) return Promise.resolve(lastFailure)
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        failureWaiter = null
+        resolve(null)
+      }, limitMs)
+      failureWaiter = (info) => {
+        clearTimeout(timer)
+        resolve(info)
+      }
+    })
+  }
 
   const writeLog = (line) => {
-    const safe = redact(line, secret)
+    const safe = redact(line, secrets)
     options.onLog?.(safe)
     if (!logPath) return
     try {
@@ -281,89 +407,84 @@ export function runTask(options = {}) {
     }
   }
 
-  const send = (message) => {
-    child?.stdin.write(`${JSON.stringify(message)}\n`)
-  }
+  const send = (message) => daemon?.send(message)
 
   const request = (method, params) => {
-    const id = ++seq
-    return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject })
-      send({ jsonrpc: '2.0', id, method, params })
-    })
+    if (!daemon) return Promise.reject(new Error('dsh is not running'))
+    return daemon.request(method, params)
   }
 
+  // 权限申请那张桌：申请收下，用户点了再回（逻辑在 ./permission.mjs）
+  const perms = createPermissionDesk({
+    send,
+    request,
+    writeLog,
+    workspace: options.workspace,
+    news,
+    onAsk: (info) => emit({ type: 'permission', ...info }),
+  })
+
+  // 回话在收场时一次发出去：工具调用之前的那些过程话那时候已经丢掉了。
   const flushReply = () => {
-    const text = redact(replyParts.join(''), secret)
-    replyParts.length = 0
-    replyId = undefined
+    const text = redact(replyText, secrets)
+    replyText = ''
     if (text.trim()) emit({ type: 'reply', text })
   }
 
+  // 这一轮动过的文件：收场时报出去（任务文件夹根目录下的才算产出，见 ./session.mjs）
   const publishFiles = () => {
-    for (const path of walkFiles(options.workspace)) {
-      let mtime
-      try {
-        mtime = statSync(path).mtimeMs
-      } catch {
-        continue
-      }
-      if (seen.get(path) === mtime) continue
-      seen.set(path, mtime)
-      emit({ type: 'artifact', path, name: basename(path) })
-    }
-  }
-
-  const stopChild = () => {
-    const gone = !child || child.exitCode != null || child.signalCode != null
-    killTree(child)
-    if (gone || !child) {
-      resolveDone(endEvent)
-      return
-    }
-    const timer = setTimeout(() => resolveDone(endEvent), 2_000)
-    child.once('exit', () => {
-      clearTimeout(timer)
-      resolveDone(endEvent)
-    })
+    for (const one of watcher?.changed() || []) emit({ type: 'artifact', path: one.path, name: one.name })
   }
 
   let endEvent
-  const finish = (status, failure) => {
+  const finish = (status, failure, note = '') => {
     if (settled) return
     settled = true
-    clearTimeout(stall)
-    clearTimeout(stallHint)
-    for (const { reject } of pending.values()) reject(new Error('stopped'))
-    pending.clear()
+    perms.cancel()
+    pulse.stop()
+    if (sessionId) daemon?.unregister(sessionId)
     void (async () => {
       try {
         flushReply()
         if (status !== 'cancelled') publishFiles()
         if (status === 'done') await emitUsage()
+        if (status === 'done') await waitTitle()
+        emitTitle()
         if (failure) {
-          writeLog(failure.detail || failure.message)
-          emit({ type: 'error', reason: failure.reason, message: failure.message })
+          writeLog(failure.detail || failure.reason)
+          // 原文只有模型那边回的才带
+          const { detail: _detail, ...said } = failure
+          emit({ type: 'error', ...said, raw: said.raw || '' })
         }
-        endEvent = emit({ type: 'end', status })
+        endEvent = emit({ type: 'end', status, ...(note ? { note } : {}) })
       } catch (error) {
         writeLog(error?.message || 'finish')
         if (!endEvent) endEvent = emit({ type: 'end', status: 'error' })
       }
-      stopChild()
+      // 这一轮彻底收完才放常驻进程（起名那次调用可能还在路上，收早了名字就没了）
+      offSink?.()
+      offSink = null
+      release?.()
+      release = null
+      resolveDone(endEvent)
     })()
   }
 
-  const arm = () => {
-    clearTimeout(stall)
-    clearTimeout(stallHint)
-    hinted = false
-    if (spoken) stallHint = setTimeout(() => {
-      if (hinted || settled) return
-      hinted = true
-      emit({ type: 'progress', text: SAY.stallHint })
-    }, stallHintMs)
-    stall = setTimeout(() => finish('error', { reason: 'stall', message: SAY.stall, detail: 'stall' }), stallMs)
+  // 头一轮（新会话）做完了名字还没起好：等一小会儿
+  async function waitTitle() {
+    if (news || options.sessionId || titled || !dshHome || !sessionId) return
+    const limit = options.titleWaitMs ?? TITLE_WAIT_MS
+    const started = Date.now()
+    while (!readTitle(dshHome, sessionId) && Date.now() - started < limit) await sleep(100)
+  }
+
+  // dsh 给这个会话起好名字了：报一次（壳拿去换掉先占位的那个名字）。dsh 只是截了第一句的开头时不算（./title.mjs）
+  function emitTitle() {
+    if (news || !dshHome || !sessionId) return
+    const text = readTitle(dshHome, sessionId)
+    if (!text || text === titled) return
+    titled = text
+    emit({ type: 'title', text: redact(text, secrets) })
   }
 
   async function emitUsage() {
@@ -398,135 +519,161 @@ export function runTask(options = {}) {
   }
 
   const onUpdate = (update) => {
+    pulse.update(update)
+    // dsh 那边模型选项变了（配置整份重写之后它会报一声）：界面上那个模型下拉跟着换
+    if (update.sessionUpdate === 'config_option_update') {
+      lastConfigOptions = update.configOptions ?? null
+      configStamp += 1
+      configWaiter?.(lastConfigOptions)
+      emit({ type: 'config-options', options: lastConfigOptions })
+      return
+    }
     if (update.sessionUpdate === 'agent_thought_chunk') {
       writeLog(`thought ${(update.content?.text || '').length}`)
       return
     }
     if (update.sessionUpdate === 'agent_message_chunk' && update.content?.type === 'text') {
-      if (replyId !== undefined && update.messageId !== replyId) flushReply()
-      replyId = update.messageId
-      replyParts.push(update.content.text || '')
+      replyText += update.content.text || ''
       return
     }
     if (update.sessionUpdate === 'usage_update') {
-      flushReply()
+      // 这里不回话：这段话后面可能还跟着工具调用，那是动手前的过程话。
       writeLog(`usage_update ${JSON.stringify({ used: update.used, size: update.size, cost: update.cost ?? null })}`)
+      // 模型每说完一段看一眼名字起好没有：长任务不用等到收尾才换上
+      if (!titled) emitTitle()
       return
     }
     if (update.sessionUpdate === 'tool_call') {
-      flushReply()
+      // 开工（或者用户刚插了话）以后的头一句：先当回话冒出来；别的过程话丢掉，不进回话，也不进对话历史
+      const said = redact(replyText, secrets).trim()
+      // 新闻在后台跑，没人看：不冒
+      if (ackPending && !news && said) {
+        ackPending = false
+        emit({ type: 'reply', text: said })
+      }
+      replyText = ''
       if (update.title === 'web_search') searches += 1
+      // 模型交稿了：这几份是成品（卡上写「文件生成」）
+      if (update.title === 'present') {
+        const files = presentedFiles(update.rawInput)
+        if (files.length) emit({ type: 'present', files })
+      }
+      // 工具调用次数：壳那边要数模型到底动没动手
+      if (update.toolCallId) toolNames.set(update.toolCallId, { name: update.title || '', input: update.rawInput })
+      emit({ type: 'tool-call', name: update.title || '' })
+    } else if (update.sessionUpdate === 'tool_call_update') {
+      // 工具调用失败：说一句，别让模型自己降级成「我只能看工作区」
+      if (update.status === 'failed') {
+        const one = toolNames.get(update.toolCallId)
+        // dsh 回给模型的那句错（记日志用，截短、去掉密钥）
+        const error = redact(failText(update), secrets).slice(0, 300)
+        emit({ type: 'tool-failed', name: one ? one.name : '', input: one ? one.input : null, error })
+      }
     }
-    const text = redact(progressText(update), secret)
+    const text = redact(progressText(update), secrets)
     if (text) emit({ type: 'progress', text })
   }
 
-  const onMessage = (message) => {
-    if (message.method === 'session/request_permission') {
-      writeLog(`permission rejected ${message.params?.toolCall?.toolCallId ?? ''}`)
-      if (message.id !== undefined) {
-        send({
-          jsonrpc: '2.0',
-          id: message.id,
-          result: { outcome: { outcome: 'selected', optionId: 'reject-once' } },
-        })
-      }
-      return
-    }
-    if (message.method === 'session/update') {
-      onUpdate(message.params?.update ?? {})
-      return
-    }
-    if (message.method && message.id !== undefined) {
-      send({ jsonrpc: '2.0', id: message.id, error: { code: -32601, message: 'method not found' } })
-      writeLog(`ignored ${message.method}`)
-      return
-    }
-    if (message.id !== undefined && pending.has(message.id)) {
-      const waiter = pending.get(message.id)
-      pending.delete(message.id)
-      if (message.error) waiter.reject(new Error(message.error.message || 'request failed'))
-      else waiter.resolve(message.result)
-    }
+  // dsh 问一声要权限：不自动拒，转给任务窗，用户点了再回（新闻那一轮直接拒）
+  const onPermission = (message, params) => {
+    const toolCallId = params?.toolCall?.toolCallId ?? ''
+    const one = toolNames.get(toolCallId)
+    const askedSession = params?.sessionId || sessionId || ''
+    writeLog(`permission asked ${toolCallId}`)
+    perms.ask({
+      requestId: message.id,
+      sessionId: askedSession,
+      toolCallId,
+      tool: one?.name || '',
+      target: permissionTarget(one?.input),
+      justification: permissionReason(one?.input),
+    })
   }
 
-  const failNow = (reason, message) => {
+  // dsh 自己重试：它把每次重试（种类、第几次、等几秒）一行一行写在一个文件里，
+  // 每一行带着会话号，这里按会话分开，出了等待行。
+  const onRetry = (info) => {
+    if (info.kind === 'failure') {
+      lastFailure = { code: info.code, status: info.status, message: info.detail }
+      const waiter = failureWaiter
+      failureWaiter = null
+      waiter?.(lastFailure)
+      return
+    }
+    // 重试那一行：种类、第几次、等几秒（原文不带出去，那是失败那一行的）
+    emit({ type: 'retry', kind: info.kind, code: info.code, retry: info.retry, maxRetries: info.maxRetries, delayMs: info.delayMs })
+  }
+
+  // 还没起 dsh 就停了（桌伴自己的错，没有原文）：extra 里是码和停工那句要的变量
+  const failNow = (reason, extra = {}) => {
     const at = Date.now()
-    const error = { type: 'error', taskId, at, reason, message }
+    const error = { type: 'error', taskId, at, reason, ...extra }
     const end = { type: 'end', taskId, at, status: 'error' }
     options.onEvent?.(error)
     options.onEvent?.(end)
     resolveDone(end)
-    return { cancel() {}, done, pid: undefined, sessionId: undefined, logPath: '' }
+    return { cancel() {}, steer: () => Promise.resolve({ ok: false, mode: 'none' }), answerPermission: () => Promise.resolve({ ok: false }), done, pid: undefined, sessionId: undefined, logPath: '' }
   }
 
-  if (!taskId || !secret || !options.workspace || !options.prompt) return failNow('other', SAY.other)
-  if (!isAbsolute(options.workspace)) return failNow('other', SAY.other)
+  if (!taskId || !options.workspace || !options.prompt) return failNow('other')
+  if (!isAbsolute(options.workspace)) return failNow('other')
+  // 钥匙和选好的模型至少有一样：都没有就没法问模型（没配密钥，Si101）。
+  if (!options.apiKey && !options.model) return failNow('key', { code: 'Si101', vars: { vendor: options.vendor || 'DeepSeek' } })
 
-  let launch
-  try {
-    launch = dshLaunch(options)
-  } catch {
-    return failNow('crash', SAY.crashStart)
-  }
-  logPath = launch.logPath
-  dshHome = launch.dshHome
+  const home = dshRootOf(options)
+  dshHome = join(home, 'dsh')
+  logPath = join(home, 'logs', `${String(taskId).replace(/[^\w.-]+/g, '_')}.log`)
   handle.logPath = logPath
+  // 全局配置（模型路线、联网、技能开关）不在这儿写：那份文件只有设置那边写，
+  // 两个任务同时跑的时候各写各的会互相覆盖（另一条线路就没了）。
   try {
-    mkdirSync(launch.dshHome, { recursive: true })
-    mkdirSync(launch.temp, { recursive: true })
-    mkdirSync(dirname(logPath), { recursive: true })
+    mkdirSync(dshHome, { recursive: true })
+    mkdirSync(join(home, 'logs'), { recursive: true })
     mkdirSync(options.workspace, { recursive: true })
   } catch {
-    return failNow('crash', SAY.crashStart)
+    return failNow('crash')
   }
-  for (const path of walkFiles(options.workspace)) {
-    try {
-      seen.set(path, statSync(path).mtimeMs)
-    } catch {
-      // a file that vanishes before the turn is not an artifact
-    }
-  }
+  watcher = createFileWatcher(options.workspace)
   writeLog(`start ${taskId}`)
 
-  try {
-    child = spawn(launch.command, launch.args, {
-      cwd: launch.cwd,
-      env: launch.env,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      detached: process.platform !== 'win32',
-      windowsHide: true,
-    })
-  } catch {
-    return failNow('crash', SAY.crashStart)
-  }
-  handle.pid = child.pid
-  arm()
-  child.on('error', () => finish('error', { reason: 'crash', message: SAY.crashStart, detail: 'spawn' }))
-  child.on('exit', () => {
-    if (!settled) finish('error', { reason: 'crash', message: SAY.crashExit, detail: 'exit' })
-  })
-  child.stderr.setEncoding('utf8')
-  child.stderr.on('data', (chunk) => {
-    for (const line of chunk.split(/\r?\n/)) if (line.trim()) writeLog(line.trim())
-  })
-  child.stdout.setEncoding('utf8')
-  child.stdout.on('data', (chunk) => {
-    buffer += chunk
-    let nl
-    while ((nl = buffer.indexOf('\n')) >= 0) {
-      const line = buffer.slice(0, nl).trim()
-      buffer = buffer.slice(nl + 1)
-      if (!line) continue
-      spoken = true
-      arm()
-      try {
-        onMessage(JSON.parse(line))
-      } catch {
-        writeLog(line)
+  // 常驻的 dsh 进程：一个 dsh 家一个进程，任务和新闻都在它上面跑。
+  // 这个进程要带的钥匙、地址：都记在这一个 dsh 家的账上（一个进程上跑好几个会话，几条线路都得能用）
+  const envVars = keyEnv(options.env)
+  if (typeof options.apiKey === 'string' && options.apiKey !== '') envVars.DEEPSEEK_API_KEY = options.apiKey
+  if (typeof options.baseUrl === 'string' && options.baseUrl !== '') envVars.DEEPSEEK_BASE_URL = options.baseUrl
+  rememberEnv(dshHome, envVars)
+  // 桌伴自己那个 dsh 家的进程是常驻的：任务跑完不收它，收掉之后马上补一个新的
+  const resident = dshHome === join(appRoot(), 'dsh')
+  daemon = daemonFor(dshHome, () => dshLaunch({ ...options, lowRoot: home }), { resident })
+  // 钥匙或地址跟这个进程起的时候不一样：收掉它（正在跑的那几场按设置变化中断收场），重新起（新的环境）
+  if (!daemon.ensureEnv(envVars)) daemon = daemonFor(dshHome, () => dshLaunch({ ...options, lowRoot: home }), { resident })
+  release = daemon.lease()
+  // dsh 自己说的话也进这一轮的日志（各自打码）
+  offSink = daemon.addSink((line) => writeLog(line))
+
+  // 干活中途插一句：插进这一轮的下一步（下一步就听到）；插不进去就排队，等这一轮干完再发。
+  // 插话带的那几份文件：跟开工时一样，用资源链接给模型。
+  async function steerText(text, files) {
+    const body = typeof text === 'string' ? text.trim() : ''
+    if (!body) return { ok: false, mode: 'none' }
+    if (settled || !sessionId) return { ok: false, mode: 'queue' }
+    const links = (Array.isArray(files) ? files : [])
+      .filter((one) => one && typeof one.path === 'string' && one.path)
+      .map((one) => fileLink(options.workspace, one.path))
+    try {
+      const res = await request(STEER_METHOD, { sessionId, text: body, files: links })
+      if (res && res.accepted === true) {
+        writeLog('steer accepted')
+        // 用户插了一句：模型接下来动手前的那句话当回话冒出来（回应这一句）
+        ackPending = true
+        return { ok: true, mode: 'steer' }
       }
+      writeLog('steer rejected')
+    } catch (error) {
+      writeLog(`steer rejected ${plainLogText(error?.message)}`)
     }
-  })
+    return { ok: false, mode: 'queue' }
+  }
 
   const doneProxy = new Promise(resolve => {
     const prior = resolveDone
@@ -537,42 +684,157 @@ export function runTask(options = {}) {
   })
   handle.done = doneProxy
 
+  // 会话里切模型：模型选项以回包为准，不在选项里就不发 prompt；思考档位只在切完后的回包还提供时才发。
+  // 回 false 表示这轮已经按 model 报错收场，别再往下问。
+  async function switchModel(offered) {
+    const wanted = options.model
+    if (offered !== undefined && !hasChoice(offered, wanted.value)) {
+      writeLog(`model not offered ${wanted.value}`)
+      finish('error', { reason: 'model', detail: 'model not offered' })
+      return false
+    }
+    const switched = await setModelOption(wanted.value)
+    writeLog(`model ${wanted.value}`)
+    if (wanted.effort && pickEffort(switched?.configOptions, wanted.effort) != null) {
+      await request('session/set_config_option', { sessionId, configId: 'reasoning_effort', value: wanted.effort })
+      writeLog(`effort ${wanted.effort}`)
+    }
+    return true
+  }
+
+  // 切模型：刚保存的设置还没热加载完时，dsh 会说这个模型选项它不认。
+  // 那就等它把模型选项刷新一遍（最多 MODEL_WAIT_MS）再试一次；还不行就照原来的错走。
+  async function setModelOption(value) {
+    const before = configStamp
+    try {
+      return await request('session/set_config_option', { sessionId, configId: 'model', value })
+    } catch (error) {
+      if (!/unknown model option/i.test(String(error?.message || ''))) throw error
+      writeLog('model option unknown')
+      const updated = await waitConfigOptions(MODEL_WAIT_MS, before)
+      if (!updated) throw error
+      writeLog('model option retry')
+      return await request('session/set_config_option', { sessionId, configId: 'model', value })
+    }
+  }
+
+  // 等这个会话的模型选项刷新（热加载完了 dsh 会报一声 config_option_update）：
+  // 只认等的时候新来的那一次（之前刷过的那个不算）。
+  const waitConfigOptions = (limitMs, before) => {
+    if (configStamp > before) return Promise.resolve(lastConfigOptions)
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        configWaiter = null
+        resolve(null)
+      }, limitMs)
+      timer.unref?.()
+      configWaiter = (options) => {
+        clearTimeout(timer)
+        configWaiter = null
+        resolve(options)
+      }
+    })
+  }
+
   ;(async () => {
     try {
-      await request('initialize', {
-        protocolVersion: 1,
-        clientInfo: { name: 'sidemate', version: '0.1.0' },
-        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-      })
+      // dsh 还没起好时来的任务排着等：起进程、握手、开会话都在这个 await 后面
+      await daemon.start()
+      pidValue = daemon.pid || 0
+      // 这一条连接能不能收图片：dsh 自己说的（看图的模型才说能）
+      const images = daemon.images === true
+      if (images) writeLog('images on')
       if (settled) return
-      if (sessionId) {
-        await request('session/resume', { sessionId, cwd: options.workspace, mcpServers: [] })
-      } else {
-        const created = await request('session/new', { cwd: options.workspace, mcpServers: [] })
-        sessionId = created?.sessionId
-      }
+      const opened = await daemon.open({ sessionId: options.sessionId, cwd: options.workspace, mcpServers: options.mcpServers })
+      // 外部工具服务的配置 dsh 不认：这一轮没带它，照常跑，任务窗里说一句
+      if (opened.mcpDropped) emit({ type: 'mcp-config-failed' })
+      sessionId = opened.sessionId
       handle.sessionId = sessionId
       if (settled) return
+      // 这个会话的事件都回这条对话：更新、权限申请、重试播报、进程断了
+      // dsh 意外退出：这一轮标成「已中断」（不报错，用户点「继续」接着做）；
+      // 连崩（5 分钟内崩了 3 次）算程序崩溃，报 Si301
+      daemon.register(sessionId, {
+        onUpdate,
+        onPermission,
+        onRetry,
+        onCrash: (detail) => {
+          if (detail?.loop) finish('error', { reason: 'crash', detail: detail.detail || 'exit' })
+          else finish('interrupted')
+        },
+        // 桌伴主动收进程（重起、换环境）：这一轮按「设置变化中断」收场（能接着做）
+        onStopped: () => finish('cancelled', null, 'settings'),
+      })
+      // 新闻那一轮用不上名字：把名字钉住，dsh 就不会为它多发那一次起名的请求
+      if (news) {
+        try {
+          await request(QUIET_TITLE_METHOD, { sessionId, title: 'sidemate' })
+        } catch (error) {
+          writeLog(`quiet title failed ${plainLogText(error?.message)}`)
+        }
+      }
+      // 主题的自动配置权限选了「允许」：这个会话切成完全访问（跟权限卡「本任务都允许」同一条路），
+      // 切完不来权限申请。切不动就照旧：权限申请还是一律拒绝。
+      if (options.fullAccess === true) {
+        try {
+          await request(MODE_METHOD, { sessionId, mode: 'danger-full-access' })
+          writeLog('sandbox full access')
+        } catch (error) {
+          writeLog(`sandbox switch failed ${plainLogText(error?.message)}`)
+        }
+      }
+      if (options.model) {
+        const ok = await switchModel(opened.configOptions)
+        if (!ok || settled) return
+      }
       const prior = readTokenUsage(dshHome, sessionId)
       if (options.sessionId && (prior === undefined || prior.token === undefined)) {
         writeLog('usage baseline unread')
         handle.omitUsage = true
       } else {
         // 起点轮号看边界那行：上一轮最后一步重试过时 tokenUsage.last 是空的，用它会把上一轮收尾当这一轮。
-        handle.usageTurn = prior?.boundary?.lastTurn ?? prior?.token?.last?.turn ?? 0
+        handle.usageTurn = prior?.boundary?.lastTurn ?? 0
         handle.usageBase = prior?.token?.totals ?? ZERO
       }
-      const result = await request('session/prompt', {
-        sessionId,
-        prompt: [{ type: 'text', text: options.prompt }],
-      })
-      if (settled) return
-      finish(result?.stopReason === 'cancelled' ? 'cancelled' : 'done')
+      // 一轮就发一次：重试由 dsh 自己来（它只重发那一次模型请求，
+      // 用户那句话不会在会话里叠多遍——见 app/dsh/models.mjs 那段说明）。
+      // dsh 每重试一次就往播报文件里写一行，桌伴照着出等待行。
+      pulse.prompt()
+      try {
+        // 这一轮给模型的话：正文 + 用户给的文件（资源链接；看图的模型再带上图片本身）
+        const prompt = [{ type: 'text', text: options.prompt }]
+        for (const one of fileBlocks(options.workspace, options.files, { images: images && options.vision === true })) prompt.push(one)
+        const result = await daemon.prompt(sessionId, { prompt })
+        if (settled) return
+        finish(result?.stopReason === 'cancelled' ? 'cancelled' : 'done')
+      } catch (error) {
+        if (settled) return
+        // 桌伴主动收的进程（重起、换环境）：不是报错，按设置变化中断收场
+        if (daemon?.stopped === true) {
+          finish('cancelled', null, daemon?.stopReason === 'settings' ? 'settings' : '')
+          return
+        }
+        const detail = error?.message || ''
+        // 这一轮最后那次失败：dsh 的码、HTTP 状态、原文（插件从 turn/end 事件带来的）
+        const failure = await waitFailure()
+        // dsh 给了码就照码分（app/task/codes.mjs 的 reasonForDsh）；
+        // 没给（没等到 turn/end 那条）就当模型请求自己挂了
+        const reason = failure ? reasonForDsh(failure.code, failure.status, routeOf(options)) : 'server'
+        writeLog(`failed ${failure?.code || reason}`)
+        finish('error', failureOf(reason, detail, failure))
+      }
     } catch (error) {
       if (settled) return
+      // 桌伴主动收的进程（重起、换环境）：不是报错，按设置变化中断收场
+      if (daemon?.stopped === true) {
+        finish('cancelled', null, daemon?.stopReason === 'settings' ? 'settings' : '')
+        return
+      }
+      // 这儿是起会话、开模型那些地方出的错：还没跟模型说过话，没有 dsh 的码
       const detail = error?.message || ''
-      const reason = classifyFailure(detail)
-      finish('error', { reason, message: SAY[reason] || SAY.other, detail })
+      // dsh 自己没了（崩了、连崩不再重起）：算程序崩溃（Si301）
+      const reason = error?.crashLoop === true || daemon?.dead ? 'crash' : 'other'
+      finish('error', failureOf(reason, detail, null))
     }
   })()
 

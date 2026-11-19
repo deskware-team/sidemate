@@ -3,6 +3,7 @@
 // 认不出来的（图片、斜体）当普通字，不解析；链接只认 http(s)，别的协议整串当普通字。
 
 import { inlineSegments } from './inline.mjs'
+import { t } from '../copy/copy.mjs'
 
 const HEAD = /^(#{1,6})\s+(.*)$/
 const BULLET = /^\s*[-*+]\s+(.*)$/
@@ -52,6 +53,13 @@ function splitLinks(text) {
   for (const hit of text.matchAll(LINK)) {
     const bare = hit[3] !== undefined
     const url = bare ? trimTail(hit[3]) : httpUrl(hit[2])
+    // [文字](不是网址的东西)：多半是模型指着任务文件夹里的文件（[摘要.docx](摘要.docx)），只留文字，不露方括号和括号
+    if (!url && !bare) {
+      if (hit.index > last) out.push({ text: text.slice(last, hit.index) })
+      out.push({ text: hit[1] || hit[2] })
+      last = hit.index + hit[0].length
+      continue
+    }
     if (!url) continue
     if (hit.index > last) out.push({ text: text.slice(last, hit.index) })
     out.push({ text: bare || !hit[1] ? url : hit[1], link: url })
@@ -148,7 +156,10 @@ export function markdownBlocks(text) {
       i += 1
     }
     if (!buf.length) { i += 1; continue }
-    blocks.push({ type: 'p', segs: segs(buf.join('\n')) })
+    // 以「来源：」开头的段落（连续几行来源合成的一段也算）标上 src，页面给小号灰字
+    const para = { type: 'p', segs: segs(buf.join('\n')) }
+    if (buf[0].trim().startsWith(t('source.prefix'))) para.src = true
+    blocks.push(para)
   }
   return blocks
 }

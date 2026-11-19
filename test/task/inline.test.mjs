@@ -22,6 +22,23 @@ test('两段粗体各管各的', () => {
   ])
 })
 
+test('三个以上星号包住的也当粗体（***字***、****字****），星号不露出来', () => {
+  assert.deepEqual(parseInline('***要点***'), [[{ text: '要点', bold: true, code: false }]])
+  assert.deepEqual(parseInline('****要点****'), [[{ text: '要点', bold: true, code: false }]])
+  assert.deepEqual(parseInline('*****要点*****'), [[{ text: '要点', bold: true, code: false }]])
+  // 和别的字混着也在，里头的粗体递归照旧
+  assert.deepEqual(parseInline('****前****和后面'), [
+    [
+      { text: '前', bold: true, code: false },
+      { text: '和后面', bold: false, code: false },
+    ],
+  ])
+  // 两头星号数不一样（比如 **字***）也包得住，不露星号
+  assert.deepEqual(parseInline('**字***'), [[{ text: '字', bold: true, code: false }]])
+  // 包不到的星号照旧当字
+  assert.deepEqual(parseInline('***没配对'), [[{ text: '***没配对', bold: false, code: false }]])
+})
+
 test('`字` 变代码，反引号不显示', () => {
   assert.deepEqual(parseInline('`文件名.docx`'), [[{ text: '文件名.docx', bold: false, code: true }]])
 })

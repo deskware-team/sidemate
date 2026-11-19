@@ -1,10 +1,10 @@
-// 任务窗的运动（设计稿第三节②）：透明窗、先摆好再露脸、收回放完才藏、变高 120ms。
+// 任务窗的运动：透明窗、先摆好再露脸、收回放完才藏。
 // 窗、计时器都是假的，只看次序和时长。
 
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { taskWindowOptions } from '../../app/task/window.mjs'
-import { createResizer, showTaskWindow, RESIZE_MS, ROLL_MS } from '../../app/task/motion.mjs'
+import { showTaskWindow, ROLL_MS } from '../../app/task/motion.mjs'
 import { createHider } from '../../app/task/hide.mjs'
 
 // 假时钟：setTimeout / setInterval 都记在这儿，advance(毫秒) 就往前拨
@@ -77,22 +77,4 @@ test('收回：动画放完才藏起来', () => {
   advance(1)
   assert.deepEqual(order, ['anim:out', 'hide'])
   assert.equal(ROLL_MS, 180, '收回 180ms')
-})
-
-test('内容变长：120ms 过渡，不跳', () => {
-  const { timers, advance, now } = clock()
-  const heights = []
-  const win = {
-    getBounds: () => ({ x: 0, y: 0, width: 460, height: 320 }),
-    setBounds: (box) => heights.push(box.height),
-  }
-  const resizer = createResizer({ win, timers, now })
-  resizer.to({ x: 0, y: 0, width: 460, height: 460 })
-  assert.deepEqual(heights, [], '刚动就跳了')
-  advance(RESIZE_MS / 2)
-  assert.equal(heights.length > 0, true, '过渡没动')
-  assert.equal(heights[0] < 460, true, '一下就到了')
-  advance(RESIZE_MS)
-  assert.equal(heights[heights.length - 1], 460, '没过渡到最终高度')
-  assert.equal(RESIZE_MS, 120, '变高 120ms')
 })

@@ -67,3 +67,17 @@ test('别的路子把窗叫出来以后，之前那次失焦不算数', () => {
   assert.equal(toggler.toggle(), 'opened')
   assert.deepEqual(calls, ['hide', 'open'])
 })
+
+test('打开时带上小岛交的东西（做完了的那一轮）：原样交给打开窗的那一步；收窗时不用', () => {
+  const got = []
+  const state = { open: false }
+  const toggler = createToggler({
+    isOpen: () => state.open,
+    open: (detail) => { got.push(detail); state.open = true },
+    hide: () => { state.open = false },
+  })
+  assert.equal(toggler.toggle({ taskId: 'run-a' }), 'opened')
+  assert.equal(toggler.toggle({ taskId: 'run-a' }), 'closed')
+  assert.equal(toggler.toggle(), 'opened')
+  assert.deepEqual(got, [{ taskId: 'run-a' }, undefined])
+})

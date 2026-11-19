@@ -14,7 +14,7 @@ test('the bundled writing skill has a valid dsh name and usage instructions', ()
   assert.match(name, /^[a-z0-9]+(?:-[a-z0-9]+)*$/)
   assert.match(text, /^description:\s*\S+/m)
   assert.match(text, /^whenToUse:\s*\S+/m)
-  assert.match(text, /scripts\/compile_docx\.py/)
+  assert.match(text, /用 Office 技能（或随包 python-docx）把完整稿子生成 Word/)
 })
 
 test('the writing skill stays within the main instruction line budget', () => {

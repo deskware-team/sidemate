@@ -122,12 +122,16 @@ test('drop reaches the opened pet', { skip: process.env.SIDEMATE_DROP ? false : 
     const kinds = (from, to) => all.slice(from, to).map((event) => event.event).join(' ')
     console.log('进来立刻松手那次：', kinds(fast) || '什么都没发生')
     const drop = all.find((event) => event.event === 'drop')
+    const quickDrop = [...all].reverse().find((event) => event.event === 'drop')
     const checks = {
       '页面跟着长到 360': grown === 360,
-      '进来张开、松手缩回、进来再出去': kinds(0, slow) === 'start expand drop collapse expand collapse',
+      // 进来那一下先弹一下等 250ms 再张托（expect），所以每次进来多一条 expect
+      '进来张开、松手缩回、进来再出去': kinds(0, slow) === 'start expect expand drop collapse expect expand collapse',
       '完整路径（中文、空格、文件夹）': JSON.stringify(drop?.paths) === JSON.stringify(files),
       '落点在长出来的区域': drop?.bounds.width === 360 && drop.at.x > 180,
-      '手快也不断': kinds(slow, fast) === 'expand drop collapse',
+      // 手快也不断：期待的 250ms 里松手，托不等，文件直接处理、一条不丢
+      '手快也不断': kinds(slow, fast) === 'expect expect-cancel drop',
+      '手快那次文件一条不丢': JSON.stringify(quickDrop?.paths) === JSON.stringify(files),
     }
     for (const [name, ok] of Object.entries(checks)) console.log(ok ? '过' : '没过', name)
     assert.ok(Object.values(checks).every(Boolean), JSON.stringify(checks))

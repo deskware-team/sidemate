@@ -2,7 +2,7 @@
 // 鼠标按下后挪够 DRAG_THRESHOLD_PX 才算开始拖，没挪够松手就是点击。
 // 点击绝不挪位置：dragStart 只在挪够阈值那一刻才发，点一下不发 dragStart / dragEnd，
 // 壳里的位置（rest、pet-place.json）一个像素都不动。
-// 纯函数：页面（pet.js）和测试共用这一个阈值，页面里不再自己写 4。
+// 纯函数：页面（pet.js）和测试共用这一个阈值。
 
 export const DRAG_THRESHOLD_PX = 4
 

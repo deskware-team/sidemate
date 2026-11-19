@@ -77,9 +77,9 @@ test('pet.js 的接法：按下只记起点，dragStart 只从挪够阈值那条
   assert.match(release, /if \(what === 'drag'\) pet\.dragEnd\(\)\s*\n\s*else pet\.click\(\)/, '拖了才 dragEnd，没拖够只 click')
 })
 
-test('壳的接法：只有真拖过才动位置、才写 pet-place.json，点击那一摊不碰', () => {
-  // 存位置（pet-place.json）只在 drag-end 一处
-  assert.equal(count(shellSource, /(?<!function )savePlace\(\)/g), 1)
+test('壳的接法：只有真拖过、或改了小岛大小才动位置、才写 pet-place.json，点击那一摊不碰', () => {
+  // 存位置（pet-place.json）只在 drag-end 和小岛大小变了（applyIslandScale）两处
+  assert.equal(count(shellSource, /(?<!function )savePlace\(\)/g), 2)
   const dragEnd = shellSource.slice(shellSource.indexOf("'pet:drag-end'"), shellSource.indexOf("'pet:drag-enter'"))
   assert.ok(dragEnd.includes('savePlace()'), '存位置就在 drag-end 里')
   assert.match(dragEnd, /if \(!dragging\) return/, '没拖过（dragging 没立起来）就不收位置')

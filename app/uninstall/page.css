@@ -1,0 +1,44 @@
+/* 卸载前那一问：420 宽的小窗，颜色、圆角跟设置窗一套 */
+:root {
+  --paper: #f5f1e8;
+  --ink: #22201c;
+  --faint: #5f5a52;
+  --line: #e3ded3;
+  --accent: #c53a22;
+  --radius: 8px;
+  font-family: 'Noto Sans SC', 'Microsoft YaHei UI', sans-serif;
+  color: var(--ink);
+  background: var(--paper);
+}
+body { margin: 0; height: 100vh; overflow: hidden; }
+main { box-sizing: border-box; height: 100vh; padding: 28px 28px 22px; display: flex; flex-direction: column; gap: 14px; }
+
+/* 没有系统标题栏：顶上那一条拖窗口；右上角一个圆形关闭按钮，嵌在窗口里 */
+#winbar { position: fixed; top: 0; left: 0; right: 0; height: 24px; -webkit-app-region: drag; z-index: 10; }
+#win-close {
+  position: fixed; top: 10px; right: 10px; width: 24px; height: 24px; margin: 0; padding: 0; z-index: 11;
+  border: 0; border-radius: 50%; background: rgba(34, 32, 28, 0.06); cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+#win-close::before, #win-close::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 1.5px; border-radius: 1px;
+  background: var(--faint); transform: translate(-50%, -50%) rotate(45deg);
+}
+#win-close::after { transform: translate(-50%, -50%) rotate(-45deg); }
+#win-close:hover { background: rgba(34, 32, 28, 0.12); }
+#win-close:hover::before, #win-close:hover::after { background: var(--ink); }
+
+h1 { margin: 0; font-size: 16px; font-weight: 500; line-height: 22px; }
+
+/* 勾选那一项：框在左，字在右，字可以折行 */
+.check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 19px; color: var(--faint); cursor: pointer; }
+.check input { flex: none; width: 15px; height: 15px; margin: 2px 0 0; accent-color: var(--ink); cursor: pointer; }
+
+/* 底下两个按钮靠右：取消是描边的，卸载是红底的 */
+#actions { margin-top: auto; display: flex; justify-content: flex-end; gap: 10px; }
+#actions button {
+  font: inherit; font-size: 13px; line-height: 16px; padding: 7px 18px; border-radius: var(--radius); cursor: pointer;
+}
+#actions .secondary { border: 1px solid var(--line); background: #ffffff; color: var(--ink); }
+#actions .danger { border: 0; background: var(--accent); color: var(--paper); font-weight: 500; }
+#actions button:focus-visible { outline: 2px solid var(--faint); outline-offset: 2px; }

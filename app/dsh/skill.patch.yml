@@ -1,4 +1,16 @@
-# acp 配置不带 Office 技能（sdk 才带）。设计稿第八节要挂上，资源用包里自带的。
+# acp 配置不带 Office 技能和 Office 原生工具（sdk 才带）。照上游 packages/bundle/sdk-app/cordis.patch.yml 挂上：
+# office-kit 是渲染/转换引擎（输出目录放 dsh 家里，不写进工作区）、tool-office 是模型看到的三件工具
+# （office_convert / office_render / office_recalculate）、skill-office 是四个 Office 技能，Python 走随包那份。
 - insert:
+    - id: office-kit
+      name: '@deepseek-ai/dsh-office-kit'
+      config:
+        outputDirectory: !!js dshHomePath('office-kit', 'outputs')
+
+    - id: tool-office
+      name: '@deepseek-ai/dsh-tool-office'
+
     - id: skill-office
       name: '@deepseek-ai/dsh-skill-office'
+      config:
+        pythonEnvironment: !!js "process.env.DSH_PRIMARY_RUNTIME ? 'workspace-dependencies' : 'user'"

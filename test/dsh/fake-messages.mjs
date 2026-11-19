@@ -76,6 +76,16 @@ function isSearch(body) {
   return Array.isArray(body?.tools) && body.tools.some(tool => tool?.type === 'web_search_20250305')
 }
 
+// rc.3 的搜索走 DeepSeek 的 Search API：dsh 往 {searchBaseURL}/search 发一个 POST，
+// 回 {"results":[{url,title,snippet}]}。请求头是 Authorization: Bearer 钥匙。
+function isSearchApi(url) {
+  return String(url ?? '').split('?')[0].endsWith('/search')
+}
+
+const SEARCH_API_BODY = JSON.stringify({
+  results: [{ url: 'https://example.com/a', title: '资料', snippet: '一段摘要' }],
+})
+
 const SEARCH_BODY = JSON.stringify({
   content: [{
     type: 'web_search_tool_result',
@@ -83,8 +93,15 @@ const SEARCH_BODY = JSON.stringify({
   }],
 })
 
-export function startFake({ respond, expectKey } = {}) {
+// dsh 给会话起名字的那次额外调用：系统提示是它自己的那几句英文
+function isTitle(body) {
+  return JSON.stringify(body?.system ?? '').includes('concise title')
+}
+
+// title：起名字那次回什么（不算进 calls，剧本照旧只看干活的那几次请求）
+export function startFake({ respond, expectKey, title = '测试任务名' } = {}) {
   const calls = []
+  const titles = []
   const sockets = new Set()
   const server = createServer((req, res) => {
     const chunks = []
@@ -97,14 +114,28 @@ export function startFake({ respond, expectKey } = {}) {
       } catch {
         body = { raw }
       }
-      if (expectKey !== undefined && req.headers['x-api-key'] !== expectKey) {
+      const bearer = String(req.headers['authorization'] ?? '')
+      const keyed = req.headers['x-api-key'] === expectKey || bearer === `Bearer ${expectKey}`
+      if (expectKey !== undefined && !keyed) {
         res.writeHead(401, { 'content-type': 'application/json' })
         res.end('{"error":{"type":"authentication_error","message":"unauthorized"}}')
+        return
+      }
+      // Search API 的请求不算干活那几次请求：不让它占掉剧本的步数。
+      if (isSearchApi(req.url)) {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end(SEARCH_API_BODY)
         return
       }
       if (isSearch(body)) {
         res.writeHead(200, { 'content-type': 'application/json' })
         res.end(SEARCH_BODY)
+        return
+      }
+      if (isTitle(body)) {
+        titles.push(body)
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
+        res.end(messageStream({ id: 'title', usage: { input_tokens: 1, output_tokens: 1 }, blocks: [{ type: 'text', text: title }] }))
         return
       }
       calls.push(body)
@@ -130,6 +161,7 @@ export function startFake({ respond, expectKey } = {}) {
       resolve({
         url: `http://127.0.0.1:${port}`,
         calls,
+        titles,
         close() {
           for (const socket of sockets) socket.destroy()
           return new Promise((done) => server.close(() => done()))

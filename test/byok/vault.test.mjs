@@ -1,132 +1,92 @@
+// 设置文件（data\settings.json）现在只记一件事：小岛开场放过没有。钥匙在 test/models 那边测。
 import assert from 'node:assert/strict'
-import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import test from 'node:test'
+
 import { createVault } from '../../app/byok/vault.mjs'
 
-const KEY = 'sk-sidemate-vault-sample-key'
-
-function xor() {
-  return {
-    available: () => true,
-    encrypt(text) {
-      const buf = Buffer.from(text, 'utf8')
-      for (let i = 0; i < buf.length; i++) buf[i] ^= 0x5a
-      return buf
-    },
-    decrypt(buf) {
-      const copy = Buffer.from(buf)
-      for (let i = 0; i < copy.length; i++) copy[i] ^= 0x5a
-      return copy.toString('utf8')
-    },
-  }
+// 设置文件在 data\ 下面：写之前先把目录建出来
+function writeSettingsFile(path, text) {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, text)
 }
 
-function found(dir, text) {
-  const needles = [Buffer.from(text, 'utf8'), Buffer.from(text, 'utf16le')]
-  const walk = (current) => {
-    let names
-    try { names = readdirSync(current) } catch { return false }
-    for (const name of names) {
-      if (name === '.credentials.yaml') return true
-      const path = join(current, name)
-      const st = statSync(path)
-      if (st.isDirectory()) {
-        if (walk(path)) return true
-      } else if (needles.some((needle) => readFileSync(path).includes(needle))) return true
-    }
-    return false
-  }
-  return walk(dir)
-}
 
-test('the data directory never holds the key in the clear', () => {
-  const root = mkdtempSync(join(tmpdir(), 'sidemate-byok-'))
+test('the intro flag starts unset and gets remembered', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sidemate-byok-vault-'))
   try {
-    writeFileSync(join(root, '设置.json'), `{"rate":8,"key":"${KEY}"}\n`)
-    const vault = createVault({ root, crypto: xor() })
-    assert.equal(vault.saveKey(`  ${KEY}  `).ok, true)
-    assert.equal(vault.readKey(), KEY)
-    assert.equal(vault.hasKey(), true)
-    assert.equal(vault.unreadable(), false)
-    assert.equal(found(root, KEY), false)
-    assert.deepEqual(JSON.parse(readFileSync(join(root, '设置.json'), 'utf8')), {})
+    const vault = createVault({ root })
     assert.equal(vault.introPlayed(), false)
     vault.markIntro()
     assert.equal(vault.introPlayed(), true)
-    assert.deepEqual(JSON.parse(readFileSync(join(root, '设置.json'), 'utf8')), { introPlayed: true })
-    assert.equal(found(root, KEY), false)
+    assert.deepEqual(JSON.parse(readFileSync(join(root, 'data', 'settings.json'), 'utf8')), { introPlayed: true })
+    // 再记一遍还是同一份
+    vault.markIntro()
+    assert.deepEqual(JSON.parse(readFileSync(join(root, 'data', 'settings.json'), 'utf8')), { introPlayed: true })
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 })
 
-test('plaintext and a missing cipher are refused', () => {
-  const root = mkdtempSync(join(tmpdir(), 'sidemate-byok-'))
+test('legacy settings with extra fields are read and rewritten lean', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sidemate-byok-vault-'))
   try {
-    let encrypted = false
-    const off = createVault({
-      root,
-      crypto: {
-        available: () => false,
-        encrypt() { encrypted = true; return Buffer.from(KEY) },
-        decrypt() { return KEY },
-      },
-    })
-    assert.equal(off.saveKey(KEY).message, '这台电脑存不了钥匙')
-    assert.equal(encrypted, false)
-    assert.equal(off.hasKey(), false)
-    const plain = createVault({
-      root,
-      crypto: {
-        available: () => true,
-        encrypt: (text) => Buffer.from(text),
-        decrypt: (buf) => buf.toString('utf8'),
-      },
-    })
-    assert.equal(plain.saveKey(KEY).message, '这台电脑存不了钥匙')
-    assert.equal(plain.hasKey(), false)
-    assert.equal(found(root, KEY), false)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('a key that cannot be opened counts as none', () => {
-  const root = mkdtempSync(join(tmpdir(), 'sidemate-byok-'))
-  try {
-    const vault = createVault({
-      root,
-      crypto: {
-        available: () => true,
-        encrypt(text) {
-          const buf = Buffer.from(text, 'utf8')
-          for (let i = 0; i < buf.length; i++) buf[i] ^= 0x5a
-          return buf
-        },
-        decrypt() { throw new Error('os crypt') },
-      },
-    })
-    assert.equal(vault.saveKey(KEY).ok, true)
-    assert.equal(vault.readKey(), null)
-    assert.equal(vault.hasKey(), false)
-    assert.equal(vault.unreadable(), true)
-    assert.equal(found(root, KEY), false)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('legacy settings with rate can be read and rewritten', () => {
-  const root = mkdtempSync(join(tmpdir(), 'sidemate-byok-'))
-  try {
-    writeFileSync(join(root, '设置.json'), '{"rate":8,"introPlayed":true}\n')
-    const vault = createVault({ root, crypto: xor() })
+    writeSettingsFile(join(root, 'data', 'settings.json'), '{"rate":8,"introPlayed":true}\n')
+    const vault = createVault({ root })
     assert.equal(vault.introPlayed(), true)
     vault.markIntro()
-    assert.deepEqual(JSON.parse(readFileSync(join(root, '设置.json'), 'utf8')), { introPlayed: true })
-    assert.equal(vault.saveKey('').message, '先贴上钥匙')
+    assert.deepEqual(JSON.parse(readFileSync(join(root, 'data', 'settings.json'), 'utf8')), { introPlayed: true })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a broken or missing settings file counts as not played', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sidemate-byok-vault-'))
+  try {
+    writeSettingsFile(join(root, 'data', 'settings.json'), 'not json')
+    assert.equal(createVault({ root }).introPlayed(), false)
+    assert.equal(createVault({ root: join(root, 'nothing') }).introPlayed(), false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('字号和小岛大小两档：写一项不冲掉别的', () => {
+  const root = mkdtempSync(join(tmpdir(), 'sidemate-byok-vault-'))
+  try {
+    const vault = createVault({ root })
+    vault.markIntro()
+    vault.setOpenAtLogin(false)
+    vault.setFontScale(1.3)
+    // 写字号不冲掉小岛大小（还没写过：不凭空造一项）
+    assert.deepEqual(JSON.parse(readFileSync(join(root, 'data', 'settings.json'), 'utf8')), { introPlayed: true, openAtLogin: false, fontScale: 1.3 })
+    vault.setIslandScale(1.25)
+    // 写小岛大小不冲掉字号，也不冲掉开场和开机那两项
+    assert.deepEqual(JSON.parse(readFileSync(join(root, 'data', 'settings.json'), 'utf8')), {
+      introPlayed: true, openAtLogin: false, fontScale: 1.3, islandScale: 1.25,
+    })
+    vault.setFontScale(0.9)
+    assert.deepEqual(JSON.parse(readFileSync(join(root, 'data', 'settings.json'), 'utf8')), {
+      introPlayed: true, openAtLogin: false, fontScale: 0.9, islandScale: 1.25,
+    })
+    // 读回来还是存的那个数；档位认不认在 app/main/zoom.mjs 那边判
+    assert.equal(vault.fontScale(), 0.9)
+    assert.equal(vault.islandScale(), 1.25)
+    // 没写过、坏了的都给 undefined，不当 false 也不当 1
+    const other = createVault({ root: join(root, 'fresh') })
+    assert.equal(other.fontScale(), undefined)
+    assert.equal(other.islandScale(), undefined)
+    writeFileSync(join(root, 'broken'), 'not json')
+    assert.equal(createVault({ root: join(root, 'broken') }).fontScale(), undefined)
+    // 手改坏的值（不在档位里的数）：原样存取，档位那边当标准
+    writeSettingsFile(join(root, 'data', 'settings.json'), '{"fontScale":1.07}\n')
+    const kept = createVault({ root })
+    assert.equal(kept.fontScale(), 1.07)
+    kept.setIslandScale(0.85)
+    assert.deepEqual(JSON.parse(readFileSync(join(root, 'data', 'settings.json'), 'utf8')), { fontScale: 1.07, islandScale: 0.85 })
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

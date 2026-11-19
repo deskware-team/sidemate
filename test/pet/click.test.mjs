@@ -26,6 +26,31 @@ test('点小岛：任务窗关着就开，「等你一句话」照旧收回去',
   assert.deepEqual(calls, ['toggle', 'clearAsk'])
 })
 
+test('点小岛：红点亮着（有新新闻）就去开最新那份新闻，不走开关任务窗', () => {
+  const calls = []
+  const what = petClick({
+    toggle: () => { calls.push('toggle'); return 'opened' },
+    clearAsk: () => calls.push('clearAsk'),
+    news: true,
+    openNews: () => calls.push('openNews'),
+    press: () => calls.push('press'),
+  })
+  assert.equal(what, 'news')
+  assert.deepEqual(calls, ['press', 'openNews'], '被点那一下照旧缩一下，但不开关任务窗')
+})
+
+test('点小岛：红点没亮就照旧开关任务窗', () => {
+  const calls = []
+  const what = petClick({
+    toggle: () => { calls.push('toggle'); return 'opened' },
+    clearAsk: () => calls.push('clearAsk'),
+    news: false,
+    openNews: () => calls.push('openNews'),
+  })
+  assert.equal(what, 'opened')
+  assert.deepEqual(calls, ['toggle', 'clearAsk'])
+})
+
 test('拖文件到小岛：照旧打开任务窗，文件带进去', () => {
   const calls = []
   const ok = petDrop({
@@ -35,7 +60,7 @@ test('拖文件到小岛：照旧打开任务窗，文件带进去', () => {
     cell: 'materials',
   })
   assert.equal(ok, true)
-  assert.deepEqual(calls, [['open', { paths: ['C:/材料/周报.docx'], cell: 'materials' }], ['clearAsk']])
+  assert.deepEqual(calls, [['open', { paths: ['C:/材料/周报.docx'] }], ['clearAsk']])
 })
 
 test('没拖到文件：不打开任务窗', () => {

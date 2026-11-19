@@ -1,0 +1,13 @@
+# 开着「先读后写」：模型改文件之前得先读过那个文件（base 里这一行默认关着）。
+- id: fs-observation-policy
+  disabled: false
+# 关掉 AgentTeam 和子智能体：所有线路都关（包括 DeepSeek），界面不给出开关。
+# 一轮里同时开好几个子智能体，就等于同时发好几个模型请求。
+- id: agent-team
+  disabled: true
+- id: tool-agent-team
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true

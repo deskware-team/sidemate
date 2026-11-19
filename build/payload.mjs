@@ -6,11 +6,19 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { inflateRawSync } from 'node:zlib'
 
-const LOCK_URL = 'https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/dsh-v0.2.1-rc.5/scripts/primary-runtime/lock.json'
-const NODE_VERSION = '24.13.0'
+// dsh 0.2.2-rc.3 的随包 Python 锁文件。raw.githubusercontent 偶尔连不上（connection reset），
+// 拿不到就换 jsdelivr 的 GitHub 镜像，同样的内容。
+const LOCK_URL = 'https://raw.githubusercontent.com/deepseek-ai/deepseek-harness/dsh-v0.2.2-rc.3/scripts/primary-runtime/lock.json'
+const LOCK_MIRROR = 'https://cdn.jsdelivr.net/gh/deepseek-ai/deepseek-harness@dsh-v0.2.2-rc.3/scripts/primary-runtime/lock.json'
+// 随包 node 跑 dsh。24.13.0 的 fs.rmSync 碰上带中文的路径不删也不报错，有的路径（中文后面跟着点、空格）直接把进程崩掉（0xC0000409）；
+// 24.13.1 起修了，这里跟 24 最新的 LTS。
+// win-x64 zip 的 sha256 钉在这里（跟 PYPDF_WHEEL 一样）：nodejs.org 的 SHASUMS256.txt 那一行、下下来的 zip 都得对上它。
+// 换版本时两个一起改，build/licenses.mjs 照 NODE_VERSION 这一行认版本。
+export const NODE_VERSION = '24.22.3'
+export const NODE_SHA256 = 'e612af99f626ab415ea225af6bce5c971feb448cb5cae250bb1c3fa50c5f7d9f'
 const OFFICE = ['python-docx', 'lxml', 'typing-extensions', 'python-pptx', 'pillow', 'xlsxwriter', 'openpyxl', 'et-xmlfile']
 
-// dsh 0.2.1-rc.5 的 runtime lock 里没有 pypdf。按 R2b 钉 6.1.1，跟 office wheel 一样校验后解进 site-packages。
+// runtime lock 里没有 pypdf：钉 6.1.1，跟 office wheel 一样校验后解进 site-packages。
 export const PYPDF_WHEEL = {
   version: '6.1.1',
   url: 'https://files.pythonhosted.org/packages/07/ed/adae13756d9dabdddee483fc7712905bb5585fbf6e922b1a19aca3a29cd1/pypdf-6.1.1-py3-none-any.whl',
@@ -62,10 +70,33 @@ export function bundledPackages(lock) {
   return { ...officePackages(lock), pypdf: PYPDF_WHEEL.version }
 }
 
-async function fetchBuf(url) {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`${res.status} ${url}`)
-  return Buffer.from(await res.arrayBuffer())
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
+
+// 下载：一次不成重试几次（网络偶尔会断），每次最多等五分钟，别挂死在那儿。
+async function fetchBuf(url, attempt = 0) {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(300_000) })
+    if (!res.ok) throw new Error(`${res.status} ${url}`)
+    return Buffer.from(await res.arrayBuffer())
+  } catch (error) {
+    if (attempt >= 4) throw new Error(`${url}: ${String(error?.message || error)}`)
+    await sleep(2_000)
+    return fetchBuf(url, attempt + 1)
+  }
+}
+
+// 拿随包 Python 的锁文件：raw 连不上就换 jsdelivr 镜像。
+async function fetchLock(url) {
+  try {
+    return await fetchBuf(url)
+  } catch (error) {
+    const mirror = LOCK_MIRROR
+    try {
+      return await fetchBuf(mirror)
+    } catch {
+      throw error
+    }
+  }
 }
 
 async function downloadChecked(url, sha256) {
@@ -161,18 +192,26 @@ async function preparePython(lock, target) {
   }
 }
 
-async function prepareNode(target) {
+// SHASUMS256.txt 里这个 zip 那一行的 sha256；没有、或者跟钉的对不上都不往下走
+export function listedNodeSha(sums, name, pinned = NODE_SHA256) {
+  const line = sums.split(/\r?\n/).find(item => item.endsWith(`  ${name}`))
+  if (!line) throw new Error(`SHASUMS256.txt has no ${name}`)
+  const listed = line.split(/\s+/)[0]
+  if (listed !== pinned) throw new Error(`SHASUMS256.txt lists ${listed} for ${name}, pinned ${pinned}`)
+  return listed
+}
+
+export async function prepareNode(target) {
   const dir = join(payload, 'node')
   mkdirSync(dir, { recursive: true })
   if (target === 'win-x64') {
     const name = `node-v${NODE_VERSION}-win-x64.zip`
     const sums = (await fetchBuf(`https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt`)).toString('utf8')
-    const line = sums.split(/\r?\n/).find(item => item.endsWith(`  ${name}`))
-    if (!line) throw new Error(`SHASUMS256.txt has no ${name}`)
+    const sha = listedNodeSha(sums, name)
     const staging = join(tmpdir(), `sidemate-node-${NODE_VERSION}`)
     rmSync(staging, { recursive: true, force: true })
     mkdirSync(staging)
-    unzip(await downloadChecked(`https://nodejs.org/dist/v${NODE_VERSION}/${name}`, line.split(/\s+/)[0]), staging)
+    unzip(await downloadChecked(`https://nodejs.org/dist/v${NODE_VERSION}/${name}`, sha), staging)
     const unpacked = join(staging, `node-v${NODE_VERSION}-win-x64`)
     cpSync(join(unpacked, 'node.exe'), join(dir, 'node.exe'))
     cpSync(join(unpacked, 'LICENSE'), join(dir, 'LICENSE'))
@@ -199,7 +238,7 @@ function prepareDsh(target) {
 export async function prepare(target = hostTarget()) {
   rmSync(payload, { recursive: true, force: true })
   mkdirSync(payload, { recursive: true })
-  const lock = JSON.parse((await fetchBuf(LOCK_URL)).toString('utf8'))
+  const lock = JSON.parse((await fetchLock(LOCK_URL)).toString('utf8'))
   if (lock.pythonVersion !== '3.12.14' || lock.pythonRelease !== '20260901') {
     throw new Error(`unexpected python lock ${lock.pythonVersion} ${lock.pythonRelease}`)
   }

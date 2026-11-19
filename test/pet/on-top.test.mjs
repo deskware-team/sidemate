@@ -1,4 +1,4 @@
-// 小岛右键菜单里的「保持在最前」
+// 小岛右键菜单里的「置顶」
 // 菜单模板有这一项、勾选状态跟存的值一致、切换会调 setAlwaysOnTop 对应参数。
 
 import assert from 'node:assert/strict'
@@ -17,12 +17,12 @@ function fakeWindow() {
 }
 
 function topItem(template) {
-  const item = template.find((one) => one.label === '保持在最前')
-  assert.ok(item, '菜单里没有「保持在最前」')
+  const item = template.find((one) => one.label === '置顶')
+  assert.ok(item, '菜单里没有「置顶」')
   return item
 }
 
-test('右键菜单里有「保持在最前」这一项，是勾选项，默认勾上', () => {
+test('右键菜单里有「置顶」这一项，是勾选项，默认勾上', () => {
   const template = petMenuTemplate({ onTop: true })
   const item = topItem(template)
   assert.equal(item.type, 'checkbox')
@@ -30,7 +30,15 @@ test('右键菜单里有「保持在最前」这一项，是勾选项，默认�
   // 别的项还在
   assert.deepEqual(
     template.map((one) => one.label || one.type),
-    ['新任务', '设置', '保持在最前', 'separator', '收到托盘', '退出'],
+    ['新任务', '设置', '置顶', 'separator', '退出'],
+  )
+})
+
+test('右键菜单：「新闻订阅」排最前（设计稿②），别的项不动', () => {
+  const template = petMenuTemplate({ onTop: true, news: { label: '新闻订阅', submenu: [] } })
+  assert.deepEqual(
+    template.map((one) => one.label || one.type),
+    ['新闻订阅', '新任务', '设置', '置顶', 'separator', '退出'],
   )
 })
 

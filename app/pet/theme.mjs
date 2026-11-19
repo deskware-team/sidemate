@@ -1,8 +1,8 @@
-// 小岛：墨色小条 + 一双眼睛。尺寸、时长、曲线照设计稿第二节「1. 小岛」和第三节「动画」。
+// 小岛：墨色小条 + 一双眼睛。尺寸、时长、曲线都在这里。
 // 字号是一个变量：theme.font = 13 时小岛 112×30、表情区 56；
 // 字号改大，小岛高度、眼睛、表情区宽度、文字区边距都等比放大，没有写死的 30 / 56。
 
-import { BASE, layoutFor } from './layout.mjs'
+import { BASE, expandedWidth, layoutFor } from './layout.mjs'
 
 export const theme = {
   // 字号：13 号字配 30 高；别的尺寸都从它算出来
@@ -34,11 +34,9 @@ export const theme = {
   bubbleHardMax: 460,
   bubbleGap: 8, // 字和能点的按钮之间留的空
 
-  // 另外两个样子（小球去掉了，小岛只能吸顶）
-  receiveWidth: 360,
-  receiveHeight: 123,
+  // 收成细线的样子（小球去掉了，小岛只能吸顶）；接文件时长开多宽见 shell.mjs 的 dropWidth
   lineWidth: 64,
-  lineHeight: 4,
+  lineHeight: 4, // 细线那根线的高（跟小岛大小那档一起缩放，见 applyFont）
 
   // 时长（毫秒）
   hoverMs: 300, // 鼠标停 0.3 秒冒一行
@@ -78,6 +76,8 @@ export function applyFont(size) {
   theme.zoneGap = box.zoneGap
   theme.padRight = box.padRight
   theme.textPad = box.textPad
+  // 细线的高跟小岛大小那档一起走
+  theme.lineHeight = box.lineHeight
   theme.bubbleMin = box.island
   theme.bubbleHardMax = box.bubbleHardMax
   return box
@@ -87,7 +87,5 @@ applyFont(theme.font)
 // 冒的那一行要占多宽：左边表情区 + 空 + 文字区（跟着字走）+ 右边留白；
 // 字太长就封顶 bubbleHardMax，页面上用省略号收尾，不裁字
 export function bubbleBoxWidth(textWidth) {
-  const box = layoutFor(theme.font)
-  const need = box.eyeZone + box.zoneGap + (Number(textWidth) || 0) + box.textPad * 2 + box.padRight
-  return Math.round(Math.max(box.island, Math.min(box.bubbleHardMax, need)))
+  return expandedWidth(textWidth, layoutFor(theme.font))
 }

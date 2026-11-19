@@ -1,0 +1,723 @@
+/* 设置窗的皮：规格里的颜色、字号、圆角都收在顶上这几个变量里，下面全文只引用变量。
+   底 #f5f1e8 是窗口和小标的底色，面 #ffffff 是卡片、按钮、目录选中项的底色，
+   线 #e3ded3 是卡片边线和行间分隔线。 */
+:root {
+  --ink: #22201c;    /* 墨：页标题、行名 */
+  --sub: #5f5a52;    /* 次：说明、小字 */
+  --line: #e3ded3;   /* 线：卡片边线、行间分隔线 */
+  --face: #ffffff;   /* 面：卡片、按钮、目录选中项 */
+  --bg: #f5f1e8;     /* 底：窗口、小标 */
+  --accent: #c53a22; /* 印：链接、删除 */
+  --ink-faint: #a8a29a; /* 淡：灰着的字，比如还没接上的按钮 */
+  --fs-page: 18px;   /* 页标题 */
+  --fs-row: 14px;    /* 行名、目录项 */
+  --fs-small: 12px;  /* 小字、按钮字 */
+  --fs-tag: 11px;    /* 小标 */
+  --fs-dialog: 16px; /* 弹窗标题 */
+  --r-card: 8px;     /* 卡片圆角 */
+  --r-item: 6px;     /* 目录项、按钮圆角 */
+  --r-tag: 4px;      /* 小标圆角 */
+  --r-dialog: 12px;  /* 弹窗圆角 */
+  font: 14px/1.5 "Noto Sans SC", "Microsoft YaHei UI", sans-serif;
+  color: var(--ink);
+  background: var(--bg);
+}
+body { margin: 0; }
+main { display: flex; height: calc(100vh - 32px); }
+/* 没有系统标题栏：顶上 32 高这一条拿来拖窗口；右上角一个圆形关闭按钮，嵌在窗口里 */
+#winbar { position: relative; height: 32px; -webkit-app-region: drag; }
+#win-close {
+  position: absolute; top: 8px; right: 8px; width: 24px; height: 24px; margin: 0; padding: 0;
+  border: 0; border-radius: 50%; background: rgba(34, 32, 28, 0.06); cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+#win-close::before, #win-close::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 1.5px; border-radius: 1px;
+  background: var(--sub); transform: translate(-50%, -50%) rotate(45deg);
+}
+#win-close::after { transform: translate(-50%, -50%) rotate(-45deg); }
+#win-close:hover { background: rgba(34, 32, 28, 0.12); }
+#win-close:hover::before, #win-close:hover::after { background: var(--ink); }
+#win-close:focus-visible { outline: 2px solid var(--sub); outline-offset: 1px; }
+h1 { margin: 0; font-size: var(--fs-page); font-weight: 500; line-height: 22px; }
+h2 { font-size: 15px; font-weight: 600; color: var(--sub); margin: 28px 0 8px; letter-spacing: 0.06em; }
+p { margin: 0; }
+[hidden] { display: none !important; }
+label { display: block; margin-top: 16px; }
+input:not([type="checkbox"]):not([type="radio"]) {
+  width: 100%; box-sizing: border-box; font: inherit; margin-top: 6px;
+  padding: 10px 12px; border: 1px solid var(--ink); background: var(--face); border-radius: var(--r-card);
+}
+/* 弹窗里的主按钮还用红底胶囊这一套，卡片里的白底小按钮走下面的 .btn */
+button {
+  font: inherit; margin-top: 16px; padding: 10px 18px;
+  border: 0; border-radius: 999px; background: var(--accent); color: var(--bg); cursor: pointer;
+}
+/* 文字链接：字的位置不动，用 padding 加等量的负 margin 把能点的地方扩到 32 高、左右各多 4 */
+button.link {
+  display: inline-block; background: transparent; color: var(--accent);
+  padding: 9px 4px; margin: -9px -4px;
+}
+.fine { font-size: var(--fs-small); line-height: 19px; color: var(--sub); }
+.todo { color: var(--sub); }
+
+/* 卡片里的白底小按钮：24px 高、1px 线边、6px 圆角，红字的加 danger */
+button.btn {
+  margin: 0; box-sizing: border-box; height: 24px; padding: 4px 10px;
+  border: 1px solid var(--line); border-radius: var(--r-item);
+  background: var(--face); color: var(--ink);
+  font-size: var(--fs-small); font-weight: 400; line-height: 14px; cursor: pointer;
+}
+button.btn:hover { border-color: var(--sub); }
+button.btn.danger { color: var(--accent); }
+button.btn:disabled { opacity: 0.5; cursor: default; }
+
+/* 白卡片：模型列表、文档列表、全文都套这一层 */
+ul.card {
+  list-style: none; margin: 0; padding: 2px 16px;
+  background: var(--face); border: 1px solid var(--line); border-radius: var(--r-card);
+}
+
+/* 左边目录 148px：内边距 16/12/24/12，项与项隔 2px，当前项白底圆角、字重 500 */
+#menu {
+  flex: none; width: 148px; box-sizing: border-box;
+  display: flex; flex-direction: column; gap: 2px; padding: 16px 12px 24px;
+}
+#menu .item {
+  margin: 0; padding: 7px 0 7px 12px; border: 0; border-radius: var(--r-item);
+  background: transparent; color: var(--sub);
+  font-size: var(--fs-row); font-weight: 400; line-height: 17px; text-align: left; cursor: pointer;
+  min-height: 32px;  /* 目录项点击区至少 32 高：字的位置不动，多出来的 1px 落在下边 */
+}
+#menu .item:hover { color: var(--ink); }
+#menu .item.active { background: var(--face); color: var(--ink); font-weight: 500; }
+
+/* 右边内容区：内边距 16/28/28/28，超出自己滚 */
+#content {
+  flex: 1; box-sizing: border-box; min-width: 0;
+  display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden;
+  padding: 16px 28px 28px;
+}
+.page { flex: 1 0 auto; }
+#page-models { display: flex; flex-direction: column; gap: 16px; }
+#models-warn { color: var(--accent); font-size: var(--fs-small); line-height: 19px; }
+#models-message:empty { display: none; }
+
+/* 模型列表：一行一个条目，行间一条线；圆点、名字加小标加小字、右边按钮 */
+#models-list li {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--line);
+}
+#models-list li:last-child { border-bottom: 0; }
+#models-list input[type="radio"] {
+  appearance: none; flex: none; display: grid; place-content: center;
+  box-sizing: border-box; width: 16px; height: 16px; margin: 0; padding: 0;
+  border: 1.5px solid var(--sub); border-radius: 50%; background: var(--face); cursor: pointer;
+  position: relative;
+}
+/* 单选圈只有 16 大，套一层透明的 ::after 把能点的地方撑到 32×32，样子不动 */
+#models-list input[type="radio"]::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%); width: 32px; height: 32px;
+}
+#models-list input[type="radio"]::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ink); transform: scale(0);
+}
+#models-list input[type="radio"]:checked { border-color: var(--ink); }
+#models-list input[type="radio"]:checked::before { transform: scale(1); }
+#models-list input[type="radio"]:disabled { opacity: 0.4; cursor: default; }
+#models-list .text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+#models-list .name {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  font-size: var(--fs-row); font-weight: 500; line-height: 17px; color: var(--ink);
+}
+#models-list .note { font-size: var(--fs-small); line-height: 19px; color: var(--sub); }
+/* 这一把密钥底下的模型：模型名各占一个链接，点了就是改那个模型 */
+#models-list .models { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; }
+#models-list .models .link { margin: 0; padding: 0; font-size: var(--fs-small); line-height: 17px; }
+/* 名字那行是个 label，点了它就等于点了左边的单选框 */
+#models-list .name { margin: 0; cursor: pointer; }
+#models-list .name.off { cursor: default; }
+#models-list .side { display: flex; align-items: center; gap: 12px; }
+#models-list .link { margin: -9px -4px; padding: 9px 4px; font-size: var(--fs-small); line-height: 14px; }
+
+/* 名字旁边的小标：11px、底色同窗口；「默认」那块反色 */
+.tag {
+  flex: none; padding: 1px 6px; border-radius: var(--r-tag);
+  background: var(--bg); color: var(--sub); font-size: var(--fs-tag); font-weight: 400; line-height: 13px;
+}
+.tag.dark { background: var(--ink); color: var(--bg); }
+
+/* DeepSeek 的钥匙框：占满一行，没钥匙直接展开，有钥匙点了「换钥匙」才展开 */
+#models-list .keyform {
+  flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+  padding-top: 2px;
+}
+#models-list .keyform input { width: 16em; flex: none; margin: 0; padding: 5px 10px; font-size: var(--fs-small); }
+#models-list .keyform .result { font-size: var(--fs-small); line-height: 19px; color: var(--sub); min-height: 1.2em; }
+
+/* 同时请求数：自己占一行，跟名字那一列对齐（单选圈 16 + 间距 12）；小字标签 + 一个小数字框，跟白底小按钮一样高 */
+#models-list .conc { flex-basis: 100%; display: flex; align-items: center; gap: 8px; padding-left: 28px; }
+#models-list .conc-label, #models-list .conc-hint { font-size: var(--fs-small); line-height: 19px; color: var(--sub); }
+#models-list .conc-hint { color: var(--ink-faint); }
+#models-list .conc-input {
+  width: 64px; height: 24px; box-sizing: border-box; margin: 0; padding: 2px 8px;
+  border: 1px solid var(--line); border-radius: var(--r-item);
+  font-size: var(--fs-small); line-height: 18px;
+}
+#models-list .conc-input:focus { outline: none; border-color: var(--sub); }
+
+/* 「＋ 加一个自定义模型」一行：按钮右边跟一句小字 */
+.add-row { display: flex; align-items: center; gap: 12px; }
+
+/* 新闻页那一行：模型不能联网搜时，「加一个主题」灰着，旁边写清楚为什么 */
+#news-add:disabled { opacity: 0.5; cursor: default; }
+#news-add-note { flex: 1; min-width: 0; }
+
+/* 用量页（照 byok 设置页那一节）：月份跟着当前月，大数字，小字说明 */
+#usage-heading { margin: 8px 0 0; color: var(--sub); }
+#usage-total { font-size: 40px; font-weight: 700; line-height: 1.2; margin: 0 0 4px; }
+#usage-recent { list-style: none; margin: 0; padding: 0; }
+#usage-recent li {
+  display: grid; grid-template-columns: 1fr 3.4em 4.6em; gap: 8px; align-items: baseline;
+  padding: 7px 0; border-bottom: 1px solid var(--line);
+}
+#usage-recent .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#usage-recent .date { color: var(--sub); font-size: 15px; }
+#usage-recent .count { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* 关于页：头（小岛加名字和版本）、一句话、两摞卡片 */
+#page-about { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+#about-home { display: flex; flex-direction: column; gap: 14px; }
+#about-home .head { display: flex; align-items: center; gap: 12px; }
+#about-home .mark {
+  flex: none; width: 56px; height: 16px; border-radius: var(--r-card); background: var(--ink);
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+#about-home .mark span { width: 4px; height: 7px; border-radius: 2px; background: var(--bg); }
+#about-home .who { display: flex; flex-direction: column; }
+#about-version { font-size: var(--fs-small); line-height: 14px; color: var(--sub); }
+
+/* 声明和许可、官网和源码两摞卡片：一行一份文件或一个链接，行间一条线 */
+#doc-list.card, #site-list.card { padding: 2px 0; }  /* 卡片左右不留白边：白边归行，行才顶得到边 */
+#doc-list li, #site-list li {
+  display: flex; align-items: center; gap: 10px; padding: 0; position: relative;
+  border-bottom: 1px solid var(--line);
+}
+#doc-list li:last-child, #site-list li:last-child { border-bottom: 0; }
+#doc-list .doc {
+  flex: 1; min-width: 0; align-self: stretch; text-align: left; margin: 0; padding: 12px 32px 12px 16px;
+  border: 0; border-radius: 0; position: relative;
+  background: transparent; color: var(--ink);
+  font-size: var(--fs-row); font-weight: 500; line-height: 17px; cursor: pointer;
+}
+#doc-list .doc:hover { color: var(--accent); background: var(--bg); }
+#doc-list .status { flex: none; font-size: var(--fs-small); line-height: 14px; color: var(--sub); }
+/* 状态字是这一行最后一个时，右边留出卡片的白边 */
+#doc-list .status:last-child { margin-right: 16px; }
+/* 「›」摆在按钮的最右边（按钮右边留了位子）：点它也算点这一行；
+   Kilo 那行按钮后面还跟着状态字和「撤回同意」，「›」跟着按钮走，不压在它们上面 */
+#doc-list .chev {
+  position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+  font-size: var(--fs-row); line-height: 17px; color: var(--sub);
+}
+#site-list .ext {
+  display: flex; width: 100%; align-self: stretch; align-items: center; gap: 10px; text-align: left;
+  margin: 0; padding: 12px 16px; border: 0; border-radius: 0; background: transparent; cursor: pointer;
+}
+#site-list .ext .t { flex: 1; min-width: 0; font-size: var(--fs-row); font-weight: 500; line-height: 17px; color: var(--ink); }
+#site-list .ext:hover { background: var(--bg); }
+#site-list .ext:hover .t { color: var(--accent); }
+/* 列表里那个「撤回同意」：字的位置不动，撑开的点击区顶到卡片右边 */
+#doc-list .withdraw { margin-right: 16px; }
+#doc-list .withdraw::after { right: -16px; }
+#site-list .ext .u { flex: none; font-size: var(--fs-small); line-height: 14px; color: var(--sub); }
+#site-list .ext .a { flex: none; font-size: var(--fs-row); line-height: 17px; color: var(--sub); }
+
+/* 关于页里「开机时自动打开桌伴」那张卡：白底、边线跟声明和许可一样；左边两行字，右边一个开关 */
+/* 卡高 65：上下 12 的内边距 + 标题 21 + 标题和提示之间 4 + 提示 14 + 上下两条 1 的边线 */
+#login-item-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  box-sizing: border-box; min-height: 65px; margin: 0; padding: 12px 16px;
+  background: var(--face); border: 1px solid var(--line); border-radius: var(--r-card);
+  cursor: pointer;
+}
+#login-item-card .pref-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+#login-item-card .pref-title {
+  display: block; margin: 0;
+  font-size: var(--fs-row); font-weight: 500; line-height: 21px; color: var(--ink);
+}
+/* 键盘 Tab 到开关上时，轨条上留一圈看得见的焦点 */
+#login-item-card .switch input:focus-visible + .track { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* 内嵌页：‹ 关于 返回、标题、右上角的同意状态、能滚的全文 */
+#doc-view { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+#doc-back {
+  align-self: flex-start; margin: 0; padding: 0; border: 0; background: transparent;
+  color: var(--sub); font-size: var(--fs-small); line-height: 14px; cursor: pointer;
+  position: relative;
+}
+/* 「‹ 关于」字小，套一层透明的 ::after 把能点的地方撑到 32 高，位置不动 */
+#doc-back::after {
+  content: ""; position: absolute; left: 0; right: 0; top: -9px; bottom: -9px;
+}
+#doc-back:hover { color: var(--ink); }
+#doc-view .head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#doc-title { margin: 0; font-size: var(--fs-page); font-weight: 500; line-height: 22px; color: var(--ink); }
+#doc-consent { display: flex; align-items: center; gap: 10px; }
+#doc-consent .status { font-size: var(--fs-small); line-height: 14px; color: var(--sub); }
+#doc-consent .withdraw { height: 26px; padding: 5px 12px; }
+#doc-text {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; box-sizing: border-box; margin: 0;
+  padding: 14px 16px; background: var(--face); border: 1px solid var(--line); border-radius: var(--r-card);
+  font: inherit; font-size: var(--fs-small); line-height: 20px; white-space: pre-wrap;
+}
+/* .md 的全文排好了摆：标题、段落、列表、分隔线，不露 # 和 ** */
+#doc-text.md { white-space: normal; }
+#doc-text.md > :first-child { margin-top: 0; }
+#doc-text.md > :last-child { margin-bottom: 0; }
+#doc-text.md h3, #doc-text.md h4, #doc-text.md h5, #doc-text.md h6 {
+  margin: 16px 0 6px; font-size: var(--fs-row); font-weight: 600; line-height: 20px;
+  letter-spacing: 0; color: var(--ink);
+}
+#doc-text.md h5, #doc-text.md h6 { margin-top: 12px; font-size: 13px; }
+#doc-text.md p { margin: 0 0 8px; }
+#doc-text.md ul, #doc-text.md ol { margin: 0 0 8px; padding-left: 20px; }
+#doc-text.md li + li { margin-top: 2px; }
+#doc-text.md strong { font-weight: 600; color: var(--ink); }
+#doc-text.md code { font-size: 11px; padding: 0 3px; border-radius: var(--r-tag); background: var(--bg); word-break: break-all; }
+#doc-text.md hr { margin: 14px 0; border: 0; border-top: 1px solid var(--line); }
+
+/* 能力页：比窗高，右边内容区自己滚，滚动条 4px */
+#content::-webkit-scrollbar { width: 4px; }
+#content::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+#content::-webkit-scrollbar-track { background: transparent; }
+#page-caps { display: flex; flex-direction: column; gap: 14px; }
+#page-caps .ab-h {
+  margin: 0; font-size: var(--fs-row); font-weight: 500; line-height: 17px;
+  color: var(--ink); letter-spacing: 0;
+}
+#page-caps li {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--line);
+}
+#page-caps li:last-child { border-bottom: 0; }
+#page-caps li.empty { color: var(--sub); font-size: var(--fs-small); line-height: 19px; }
+#page-caps .text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+#page-caps .name {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  font-size: var(--fs-row); font-weight: 500; line-height: 17px; color: var(--ink);
+}
+/* 第二行只显示一行，超长省略号（全文在 title 里），行高回 58 */
+#page-caps .note {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-small); line-height: 19px; color: var(--sub);
+}
+/* 第二行里能点的那一段：AI 装的能力的仓库地址 */
+#page-caps .note .textlink {
+  margin: 0; padding: 0 1px; border: 0; background: transparent;
+  color: var(--accent); font: inherit; font-size: var(--fs-small); line-height: 19px;
+  cursor: pointer; vertical-align: baseline;
+}
+#page-caps .side { display: flex; align-items: center; gap: 12px; }
+#page-caps .switch.off { opacity: 0.5; }
+#page-caps .switch.off input { cursor: default; }
+/* 推荐那种小标：白底 1px 红边红字（自带 / 我加的 还是纸底那一梯） */
+.tag.line { background: var(--face); border: 1px solid var(--accent); color: var(--accent); }
+/* 导入失败的问题清单：一行一句红字，摆在「＋ 导入技能」按钮下面 */
+#ab-import-problems { list-style: none; margin: 0; padding: 0; }
+#ab-import-problems:empty { display: none; }
+#ab-import-problems li { color: var(--accent); font-size: var(--fs-small); line-height: 19px; }
+
+/* 「加一个 MCP」弹窗：480 宽、块间距 16、内边距 24、圆角 12 */
+.dialog.ab-dialog { width: 480px; gap: 16px; --dgap: 16px; }
+.dialog.ab-dialog .actions { align-items: center; }
+/* 粘贴那一页的问题和提示 */
+.dialog .pasteresult { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.dialog .pasteresult p { margin: 0; color: var(--accent); font-size: var(--fs-small); line-height: 19px; }
+/* 钥匙放法那一排：名字 150 宽，值占剩下；两个小标签 11px */
+.dialog .keyrow { display: flex; gap: 8px; margin-top: 8px; }
+.dialog .keyrow .keyname { width: 150px; flex: none; margin: 0; }
+.dialog .keyrow .keyvalue { flex: 1; min-width: 0; margin: 0; }
+.dialog .klabel { display: block; margin: 0 0 4px; font-size: var(--fs-tag); line-height: 13px; color: var(--sub); }
+/* 尾一排：左边「＋ 再加一个请求头」灰着，右边一句说明 */
+/* 测了以后的白卡：通了勾一下写有几个工具；没通写红字原因 */
+.dialog .probe {
+  padding: 10px 12px; background: var(--face); border: 1px solid var(--line); border-radius: var(--r-card);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.dialog .probe .okline {
+  display: flex; align-items: center; gap: 6px; margin: 0;
+  font-size: var(--fs-small); font-weight: 500; line-height: 14px; color: var(--ink);
+}
+.dialog .probe .okline::before {
+  content: ""; flex: none; width: 7px; height: 4px; margin-top: 2px;
+  border-left: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); transform: rotate(-45deg);
+}
+.dialog .probe .tools { margin: 0; font-size: var(--fs-small); line-height: 14px; color: var(--sub); }
+.dialog .probe .badline { margin: 0; font-size: var(--fs-small); line-height: 14px; color: var(--accent); }
+/* 红字提醒和「怎么填？」点开的说明 */
+.dialog .ab-warn { margin: 0; font-size: var(--fs-small); line-height: 19px; color: var(--accent); }
+.dialog .howto { margin: 0; font-size: var(--fs-small); line-height: 19px; color: var(--sub); }
+
+/* 新闻页：主题列表一行一个主题（第一行名字、第二行一句话，右边按钮和开关） */
+#page-news { display: flex; flex-direction: column; gap: 14px; }
+#news-list li {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 0; border-bottom: 1px solid var(--line);
+}
+#news-list li:last-child { border-bottom: 0; }
+#news-list li.empty { color: var(--sub); font-size: var(--fs-small); line-height: 19px; }
+#news-list .text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+#news-list .name {
+  display: flex; align-items: center; gap: 6px; min-width: 0;
+  font-size: var(--fs-row); font-weight: 500; line-height: 17px; color: var(--ink);
+}
+/* 第二行一句话：太长就一行省略（全文在 title 里）；末尾的状态不跟着被截掉 */
+#news-list .note {
+  display: flex; align-items: baseline; min-width: 0;
+  font-size: var(--fs-small); line-height: 19px; color: var(--sub);
+}
+#news-list .note .sum { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#news-list .side { display: flex; align-items: center; gap: 12px; }
+/* 「现在生成」和「生成中…」一样宽：点下去不跳 */
+#news-list .side .btn.now { min-width: 70px; }
+/* 第二行末尾那一句状态：今天交了没有 */
+#news-list .rowstatus {
+  flex: 0 0 auto; max-width: 70%; margin-left: 8px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+#news-list .sum:empty + .rowstatus { margin-left: 0; }
+#news-list .rowstatus.bad { color: var(--accent); }
+#news-list .tag.off { opacity: 0.5; }
+/* 整页的设置：一条线，两个设置项 */
+.news-line { width: 100%; height: 1px; margin: 0; border: 0; background: var(--line); }
+.pref-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pref-label { font-size: 13px; line-height: 16px; color: var(--ink); }
+/* 开关旁边那行字：点了等于点右边的开关（上下留一点再抵回去，样子不动） */
+.pref-row label.pref-label { cursor: pointer; padding: 8px 0; margin: -8px 0; }
+/* 主题行右边那个开关跟页面里共用同一套 .switch */
+
+/* 「加一个主题」弹窗：480 宽、块间距 16、圆角 12；里面分「主题」「想看什么」「什么时候」三块 */
+.dialog.news-dialog { width: 480px; gap: 16px; --dgap: 16px; }
+.dialog .area {
+  display: block; width: 100%; box-sizing: border-box; margin: 0; padding: 7px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-card); background: var(--face);
+  font: inherit; font-size: var(--fs-row); line-height: 22px; color: var(--ink); resize: vertical;
+}
+.dialog .area:focus { outline: none; border-color: var(--sub); }
+/* 勾选框和它的名字包在同一个 label 里：点名字也能勾 / 取消 */
+/* 上下各留 2px 再抵回去：样子不动，能点的地方高一点 */
+.dialog .checkpair { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; padding: 2px 0; margin: -2px 0; }
+.dialog .checkpair.off { cursor: default; }
+/* 模型列表里那一行：勾选框和模型名一起，间距跟行里的一样 */
+.dialog .checkpair.model { flex: 0 1 auto; min-width: 0; gap: 10px; }
+/* 稿里那些还没接上的小按钮：先摆着，灰着，鼠标停上去写「下一步接上」 */
+.dialog .mini {
+  margin: 0; height: 22px; box-sizing: border-box; padding: 3px 10px;
+  border: 1px solid var(--line); border-radius: var(--r-item); background: var(--face); color: var(--ink);
+  font: inherit; font-size: var(--fs-small); line-height: 14px; cursor: pointer;
+}
+.dialog .mini:disabled { opacity: 0.5; }
+/* 什么时候：一排是「每天 / 工作日 / 每周一」加时间 */
+.dialog .timerow { display: flex; align-items: center; gap: 8px; }
+.dialog .field input.time {
+  width: 59px; height: 26px; padding: 4px 12px; font-size: 13px; line-height: 16px;
+  border-radius: var(--r-card); text-align: center;
+}
+/* 红字的文字链接：不是按钮，没边框 */
+.dialog .textlink {
+  margin: -9px -4px; padding: 9px 4px; border: 0; background: transparent;
+  color: var(--accent); font: inherit; font-size: var(--fs-small); line-height: 14px;
+  cursor: pointer; white-space: nowrap;
+}
+.dialog .textlink.faint { color: var(--ink-faint); cursor: default; }
+.dialog .textlink:disabled { color: var(--ink-faint); cursor: default; }
+.dialog .genhint { margin: 0; }
+.dialog .deletelink { margin-right: 4px; }
+/* 底下三个按钮：错误的话摆在按钮旁边，「保存并生成一份」右边跟一句说明 */
+.dialog .news-actions { align-items: center; }
+.dialog .result.bad { color: var(--accent); }
+.dialog .genwrap { display: inline-flex; align-items: center; gap: 8px; }
+.dialog .genwrap .fine { white-space: nowrap; }
+
+/* 「加一个自定义模型」弹窗：设置页内的遮罩层，不开新窗口；「模型设置」叠在它上面再一层。
+   第一层 520 宽、内边距 24、块间距 14、圆角 12、0/8/24 投影；第二层 300 宽、内边距 20、间距 10 */
+.overlay {
+  position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center;
+  background: rgba(34, 32, 28, 0.35);
+}
+.overlay.second { z-index: 20; background: rgba(34, 32, 28, 0.25); }
+.dialog {
+  --dgap: 14px;  /* 块间距，分隔线也按它算 */
+  --dpad: 24px;  /* 内边距，分隔线也按它算 */
+  width: 520px; max-width: calc(100% - 48px); max-height: calc(100% - 48px);
+  overflow: hidden; box-sizing: border-box; padding: var(--dpad);
+  display: flex; flex-direction: column; gap: var(--dgap);
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-dialog);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+/* 中间那一段自己滚：标题在上、底下按钮那一排不动 */
+.dialog .dialog-body {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
+  display: flex; flex-direction: column; gap: var(--dgap);
+  /* 底下留一点空：最后一行控件撑出来的点击区（透明的 ::after）不会被滚动区的边切掉 */
+  padding-bottom: 8px;
+}
+.dialog .dialog-body::-webkit-scrollbar { width: 4px; }
+.dialog .dialog-body::-webkit-scrollbar-thumb { background: var(--line); border-radius: 2px; }
+.dialog .dialog-body::-webkit-scrollbar-track { background: transparent; }
+/* 内容滚起来时，按钮排上方画一条 1px 的线；线画在缝里，按钮不挪窝 */
+.dialog.scrolled .actions { position: relative; }
+.dialog.scrolled .actions::before {
+  content: ""; position: absolute;
+  left: calc(var(--dpad) * -1); right: calc(var(--dpad) * -1); top: calc(var(--dgap) * -1);
+  border-top: 1px solid var(--line);
+}
+.dialog h2 { margin: 0; font-size: var(--fs-dialog); font-weight: 500; line-height: 19px; letter-spacing: 0; color: var(--ink); }
+.dialog label, .dialog p { margin: 0; }
+
+/* 第二层「模型设置」小一圈：300 宽、内边距 20、间距 10、标题 15px */
+.overlay.second .dialog { width: 300px; padding: 20px; gap: 10px; --dgap: 10px; --dpad: 20px; }
+.overlay.second .dialog h2 { font-size: 15px; line-height: 18px; }
+
+/* 一块字段：小字标签在上、框在下，隔 6 */
+.dialog .field { display: block; }
+.dialog .flabel {
+  display: block; margin: 0 0 6px;
+  font-size: var(--fs-small); font-weight: 500; line-height: 14px; color: var(--sub);
+}
+/* 标签后面的小 i：圆圈里一个 i，鼠标停上去看说明（说明在 title 里） */
+.dialog .flabel .info {
+  display: inline-flex; align-items: center; justify-content: center; vertical-align: 1px;
+  width: 12px; height: 12px; margin-left: 4px; box-sizing: border-box;
+  border: 1px solid var(--sub); border-radius: 50%;
+  font-size: 9px; font-weight: 600; line-height: 1; font-style: normal; color: var(--sub);
+  cursor: help;
+}
+.dialog .flabel .info:focus { outline: none; border-color: var(--ink); color: var(--ink); }
+.dialog .field input:not([type="checkbox"]):not([type="radio"]) {
+  display: block; width: 100%; box-sizing: border-box; height: 33px; margin: 0; padding: 7px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-card); background: var(--face);
+  font: inherit; font-size: var(--fs-row); line-height: 17px; color: var(--ink);
+}
+.dialog .field input:focus, .dialog .dd select:focus { outline: none; border-color: var(--sub); }
+/* 请求头那一排的两个框比大框小一号：30 高、内边距 6/10、13px。
+ 写在通用 .field input 那条后面、带足特异性，不然会被 33 高那条压掉。 */
+.dialog .field .keyrow input[type="text"],
+.dialog .field .keyrow input[type="password"] {
+  display: block; width: 100%; box-sizing: border-box; height: 30px; margin: 0; padding: 6px 10px;
+  border: 1px solid var(--line); border-radius: var(--r-card); background: var(--face);
+  font: inherit; font-size: 13px; line-height: 16px; color: var(--ink);
+}
+.dialog .field .keyrow input:focus { outline: none; border-color: var(--sub); }
+.dialog .guide-line { margin-top: 6px; }
+.dialog .guide-line .link {
+  margin: -9px -4px; padding: 9px 4px; background: transparent; color: var(--accent);
+  font-size: var(--fs-small); line-height: 14px;
+}
+
+/* 下拉：白底 1px 线边，箭头摆在框里右边；small 那一号给「模型设置」里的数字用，「自动」小字在箭头左边 */
+.dd { position: relative; display: block; }
+.dd select {
+  display: block; width: 100%; box-sizing: border-box; height: 33px; margin: 0; padding: 7px 32px 7px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-card); background: var(--face);
+  font: inherit; font-size: var(--fs-row); line-height: 17px; color: var(--ink);
+  appearance: none; cursor: pointer;
+}
+.dd .caret {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  font-size: var(--fs-small); line-height: 14px; color: var(--sub); pointer-events: none;
+}
+.dd .auto {
+  position: absolute; right: 22px; top: 50%; transform: translateY(-50%);
+  font-size: var(--fs-tag); line-height: 13px; color: var(--sub); pointer-events: none;
+}
+.dd.small { display: inline-flex; }
+.dd.small select {
+  width: auto; height: 26px; padding: 4px 26px 4px 10px;
+  border-radius: var(--r-item); font-size: 13px; line-height: 16px;
+}
+.dd.small .caret { right: 8px; font-size: 10px; line-height: 12px; }
+.dd.small .auto { right: 18px; }
+.dd.small.hasauto select { padding-right: 54px; }
+
+/* 格式切换：两块按钮装在一个白框里，选中的墨底反白 */
+.dialog .seg {
+  display: inline-flex; gap: 2px; padding: 2px;
+  border: 1px solid var(--line); border-radius: var(--r-card); background: var(--face);
+}
+.dialog .segbtn {
+  margin: 0; height: 22px; box-sizing: border-box; padding: 4px 12px;
+  border: 0; border-radius: var(--r-item); background: transparent;
+  color: var(--sub); font: inherit; font-size: var(--fs-small); font-weight: 500; line-height: 14px; cursor: pointer;
+}
+.dialog .segbtn.on { background: var(--ink); color: var(--bg); }
+
+/* 按钮：白底 1px 线边那一种，和墨底主按钮那一种；「测一下」那行白底按钮加一句回话 */
+.dialog .ghost, .dialog .primary {
+  margin: 0; box-sizing: border-box; font: inherit; font-size: 13px; line-height: 16px; cursor: pointer;
+}
+.dialog .ghost {
+  height: 30px; padding: 6px 14px; border: 1px solid var(--line); border-radius: var(--r-card);
+  background: var(--face); color: var(--ink);
+}
+.dialog .ghost:hover { border-color: var(--sub); }
+.dialog .ghost:disabled { opacity: 0.5; cursor: default; }
+.dialog .primary {
+  height: 28px; padding: 6px 16px; border: 0; border-radius: var(--r-card);
+  background: var(--ink); color: var(--bg); font-weight: 500;
+}
+.dialog .primary:disabled { opacity: 0.5; cursor: default; }
+.dialog .testrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dialog .result { font-size: var(--fs-small); line-height: 14px; color: var(--sub); min-height: 14px; }
+.dialog .result.ok { color: var(--ink); font-weight: 500; }
+.dialog .result.ok::before {
+  content: ""; display: inline-block; width: 7px; height: 4px; margin-right: 6px;
+  border-left: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink); transform: rotate(-45deg);
+}
+
+/* 模型列表：头一行左边「模型」右边红字的「＋ 手动添加」，底下白卡片一行一个模型 */
+.dialog .models { display: flex; flex-direction: column; gap: 6px; }
+.dialog .mhead { display: flex; align-items: center; justify-content: space-between; }
+.dialog .mhead .flabel { margin: 0; }
+.dialog .addmanual {
+  margin: -9px -4px; padding: 9px 4px; border: 0; background: transparent; cursor: pointer;
+  color: var(--accent); font: inherit; font-size: var(--fs-small); line-height: 14px;
+}
+.dialog .mlist {
+  list-style: none; margin: 0; padding: 2px 6px 2px 12px; box-sizing: border-box;
+  max-height: 134px; overflow-y: auto;
+  background: var(--face); border: 1px solid var(--line); border-radius: var(--r-card);
+}
+.dialog .mlist:empty { display: none; }
+.dialog .mlist li { display: flex; align-items: center; gap: 10px; height: 42px; }
+.dialog .mlist li + li { border-top: 1px solid var(--line); }
+.dialog .mlist li.empty { font-size: 13px; line-height: 16px; color: var(--sub); }
+.dialog .mcheck {
+  appearance: none; flex: none; display: grid; place-content: center;
+  width: 16px; height: 16px; box-sizing: border-box; margin: 0; padding: 0;
+  border: 1.5px solid var(--sub); border-radius: var(--r-tag); background: var(--face); cursor: pointer;
+  position: relative;
+}
+/* 勾选框只有 16 大，套一层透明的 ::after 把能点的地方撑到 32×32，样子不动 */
+.dialog .mcheck::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  transform: translate(-50%, -50%); width: 32px; height: 32px;
+}
+.dialog .mcheck::before {
+  content: ""; width: 7px; height: 4px;
+  border-left: 1.5px solid var(--ink); border-bottom: 1.5px solid var(--ink);
+  transform: rotate(-45deg) scale(0);
+}
+.dialog .mcheck:checked { border-color: var(--ink); }
+.dialog .mcheck:checked::before { transform: rotate(-45deg) scale(1); }
+.dialog .mcheck:disabled { opacity: 0.4; cursor: default; }
+.dialog .mname {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; line-height: 16px; color: var(--ink);
+}
+.dialog .mlist li.off .mname { color: var(--sub); }
+.dialog .badges { flex: none; display: flex; gap: 4px; }
+.dialog .badge {
+  padding: 1px 6px; border-radius: var(--r-tag);
+  background: var(--bg); color: var(--sub); font-size: var(--fs-tag); line-height: 13px;
+}
+.dialog .grow { flex: 1; }
+.dialog .ctx { flex: none; font-size: var(--fs-small); line-height: 14px; color: var(--sub); }
+.dialog .gear {
+  flex: none; width: 26px; height: 26px; margin: 0; padding: 0; border: 0; border-radius: var(--r-item);
+  background: transparent; color: var(--sub); cursor: pointer; display: grid; place-content: center;
+}
+.dialog .gear:hover { background: var(--bg); color: var(--ink); }
+.dialog .gear svg { display: block; }
+.dialog .gear svg path { fill: none; stroke: currentColor; stroke-width: 1.2; }
+.dialog .gear svg circle { fill: var(--face); stroke: currentColor; stroke-width: 1.2; }
+
+/* 底下按钮：右对齐，白底「取消」挨着墨底主按钮；这一排不缩，弹窗再高也露着 */
+.dialog .actions { flex: none; display: flex; justify-content: flex-end; gap: 8px; }
+
+/* 第二层「模型设置」：一行左边字右边控件，中间一条线，档位是小块按钮，能思考/能看图是滑键 */
+.dialog .lrow { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 4px 0; }
+.dialog .llabel { font-size: 13px; line-height: 16px; color: var(--ink); }
+.dialog .sep { height: 1px; background: var(--line); }
+.dialog .chips { display: flex; gap: 4px; }
+.dialog .chip {
+  margin: 0; height: 20px; box-sizing: border-box; padding: 2px 8px; border-radius: var(--r-tag);
+  border: 1px solid var(--line); background: var(--face); color: var(--sub);
+  font: inherit; font-size: var(--fs-small); font-weight: 500; line-height: 14px; cursor: pointer;
+}
+.dialog .chip.on { border-color: var(--ink); background: var(--ink); color: var(--bg); }
+.dialog .chip:disabled { opacity: 0.4; cursor: default; }
+
+/* 页面里也要用的开关和切换（新闻页那三项设置）：跟弹窗里同一套。
+   开关本体还是 32×18 的轨条，能点的地方扩到 44×32：盒子放大，负 margin 抵掉，样子和位置都不动 */
+.switch { position: relative; flex: none; display: inline-block; width: 44px; height: 32px; margin: -7px -6px; }
+.switch input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  box-sizing: border-box; margin: 0; padding: 0; border: 0; opacity: 0; cursor: pointer;
+}
+.switch .track {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  width: 32px; height: 18px; box-sizing: border-box; border-radius: 9px;
+  border: 1px solid var(--line); background: var(--face); pointer-events: none;
+}
+.switch .track::after {
+  content: ""; position: absolute; top: 50%; left: 2px; transform: translateY(-50%);
+  width: 14px; height: 14px; border-radius: 50%; background: var(--sub);
+}
+.switch input:checked + .track { border-color: var(--ink); background: var(--ink); }
+.switch input:checked + .track::after { left: calc(100% - 16px); background: var(--face); }
+/* 灰着的开关不用扩 */
+.switch.off { width: 44px; height: 32px; margin: -7px -6px; }
+
+/* 时间框：59×26，4/12 内边距，13px，圆角 8 */
+.dialog .field input.time[type="text"] {
+  width: 59px; height: 26px; padding: 4px 12px;
+  font-size: 13px; line-height: 16px; border-radius: var(--r-card); text-align: center;
+}
+
+/* 显示页：一张白卡两行（字号、小岛大小），右边一组档位按钮 */
+.display-card { margin: 0; padding: 2px 16px; background: var(--face); border: 1px solid var(--line); border-radius: var(--r-card); }
+.display-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; }
+.display-text { display: flex; flex-direction: column; gap: 4px; }
+.display-title { font-size: var(--fs-row); font-weight: 500; line-height: 17px; }
+.display-line { border: 0; border-top: 1px solid var(--line); margin: 0; }
+/* 档位按钮：点击区至少 44×28；选中的深底白字，其余白底灰边 */
+.seg { display: flex; gap: 4px; }
+.seg .seg-btn {
+  margin: 0; box-sizing: border-box; min-width: 44px; min-height: 28px; padding: 4px 12px;
+  border: 1px solid var(--line); border-radius: var(--r-item);
+  background: var(--face); color: var(--ink);
+  font-size: var(--fs-small); font-weight: 400; line-height: 16px; cursor: pointer;
+}
+.seg .seg-btn.on { border-color: var(--ink); background: var(--ink); color: var(--face); font-weight: 500; }
+
+/* ————————————————— 点击区统一处理 —————————————————
+   小控件看着就那么点大，鼠标却要点得中：给它们挂一层透明的 ::after，
+   往外撑出一块 32×32 的能点的地方。样子一点不动，位置也不动。
+   --hit 是往外撑多少（离控件的边线算），--bw 是控件自己的边线宽
+   （::after 是按内边距盒子摆的，边线要算进去，不然少撑一点）。 */
+button.btn, .seg .seg-btn, .dialog .segbtn, .dialog .ghost, .dialog .primary,
+.dialog .mini, .dialog .chip, .dialog .gear, #doc-consent .withdraw {
+  position: relative; --bw: 0px;
+}
+button.btn::after, .seg .seg-btn::after, .dialog .segbtn::after,
+.dialog .ghost::after, .dialog .primary::after, .dialog .mini::after,
+.dialog .chip::after, .dialog .gear::after, #doc-consent .withdraw::after {
+  content: ""; position: absolute; left: 0; right: 0;
+  top: calc(-1 * (var(--hit, 0px) + var(--bw)));
+  bottom: calc(-1 * (var(--hit, 0px) + var(--bw)));
+}
+/* 齿轮是正方的，左右也撑出去 */
+.dialog .gear::after { left: calc(-1 * var(--hit, 0px)); right: calc(-1 * var(--hit, 0px)); }
+button.btn { --hit: 4px; --bw: 1px; }        /* 24 高 → 32 */
+#doc-consent .withdraw { --hit: 3px; --bw: 1px; }  /* 26 高 → 32 */
+.seg .seg-btn { --hit: 2px; --bw: 1px; }    /* 28 高 → 32 */
+.dialog .primary { --hit: 2px; }             /* 28 高 → 32 */
+.dialog .ghost { --hit: 1px; --bw: 1px; }   /* 30 高 → 32 */
+.dialog .segbtn { --hit: 5px; }              /* 22 高 → 32 */
+.dialog .mini { --hit: 5px; --bw: 1px; }    /* 22 高 → 32 */
+.dialog .chip { --hit: 6px; --bw: 1px; }    /* 20 高 → 32 */
+.dialog .gear { --hit: 3px; }               /* 26×26 → 32×32 */

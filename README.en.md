@@ -1,26 +1,31 @@
 # Sidemate
 
-Sidemate is a small helper on the Windows desktop: drop a few files on it, and it writes a document that follows your template, with sources noted as Word comments.
+Sidemate is a small helper on the Windows desktop: drop files on it, say what you need, and it hands you a document.
 
-It sits at the top edge of the screen and shows nothing but a pair of eyes. There are no accounts and no server, and it collects no usage data. Your DeepSeek key is stored encrypted on this computer.
+It sits at the top edge of the screen and shows nothing but a pair of eyes. There are no accounts and no server, and it collects no usage data. Your keys are stored encrypted on this computer.
 
 ## What it does
 
-- **Writes new documents from a template**: give it an old weekly report, summary, or report as a template plus a few source files, and it writes a new Word document that keeps the template's fonts, heading levels, and paragraph spacing.
-- **Cites every source**: text taken from your material is marked in Word comments with the file and page it came from.
-- **Writes well**: it ships with two skills, "writing" and "writing Word". Claims that are not in your material are not quietly written into the document; they are listed separately in its reply for you to confirm.
-- **Leaves originals alone**: it copies your files into its own workspace before working, and finished files are placed in the "Sidemate Output" folder.
+- **Works with several models**: Kilo (no key needed), DeepSeek, GLM (Zhipu), or your own OpenAI-style or Anthropic-style API.
+- **Writing and flowcharts**: "Writing" is built in, and the recommended "Flowcharts" skill draws boxes and arrows you can edit in Word or PowerPoint.
+- **Skills and services**: import a skill folder or .zip, or ask for one in a conversation (it shows a confirmation card and downloads only after you click); connect outside services over MCP.
+- **Scheduled news**: say what you want to read and when; at that time your model searches and reads the original pages itself, and every item links to a page it actually opened.
+- **Task window**: add a message while it works; each result is a card you can open, save elsewhere or drag to the desktop; type again to keep refining.
+
+See the release notes in [docs](docs) for what changed in each version.
 
 ## Installing
 
-1. Download `sidemate-setup-0.2.0.exe` from [Releases](https://github.com/deskware-team/sidemate/releases) and run the installer. The installer is not signed, so when Windows warns you, click "More info" and then "Run anyway".
-2. On first launch, paste your DeepSeek API key, click "Test it", and wait for the confirmation that it works.
+1. Download the latest `sidemate-setup-<version>.exe` from [Releases](https://github.com/deskware-team/sidemate/releases) and run it. The installer is not signed, so when Windows warns you, click "More info" and then "Run anyway".
+2. On first launch, pick a model: paste a DeepSeek key and click "Test", choose GLM or Kilo, or set up your own. Once the test passes you are ready.
 
-You need your own DeepSeek API key: get one from the [DeepSeek platform](https://platform.deepseek.com/).
+Get a DeepSeek key from the [DeepSeek platform](https://platform.deepseek.com/).
+
+Upgrading from 0.2 to 0.3: 0.3 does not read 0.2's key or records, so paste your key again; 0.2's files are still in `C:\Users\<your user name>\桌伴`.
 
 ## Privacy
 
-Sidemate has no accounts and no server, and it collects no usage data. Task content is only sent to the DeepSeek endpoint you chose. Your key is encrypted with the system key store (DPAPI on Windows) and kept on this computer; it is only placed in the background program's environment when a task starts. See [PRIVACY.md](PRIVACY.md) for details.
+Sidemate has no accounts and no server, and it collects no usage data. Your keys are encrypted on this computer. Task content goes only to the model you chose; with Kilo, content is processed by Kilo AI outside China. See [PRIVACY.md](PRIVACY.md) for details.
 
 ## License
 

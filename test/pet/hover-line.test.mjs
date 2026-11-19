@@ -1,5 +1,5 @@
 // 悬停冒出来的那一行：
-// - 干活中只说「正在工作 · x 秒」
+// - 干活中只说「执行中 · x 秒」；平时几句轮换
 // - 字的起点在眼睛右边，还留了空
 // - 字太长收成省略号，不裁
 // 纯函数和样式检查，不拉起 Electron。
@@ -23,15 +23,23 @@ function rule(selector) {
   return found[1]
 }
 
-test('干活中：只说「正在工作 · x 秒」，秒数自己走', () => {
+test('干活中：只说「执行中 · x 秒」，秒数自己走', () => {
   const line = bubbleOf({ mode: 'work', elapsed: '42 秒' })
-  assert.equal(line.text, '正在工作 · 42 秒')
-  assert.match(line.text, /^正在工作 · (\d+ 分 \d+ 秒|\d+ 秒)$/)
-  assert.equal(bubbleOf({ mode: 'work', elapsed: '1 分 34 秒' }).text, '正在工作 · 1 分 34 秒')
-  // 别的状态的字不变
-  assert.equal(bubbleOf({ mode: 'done', artifact: '综述.docx' }).text, '做完了 · 点开看看')
-  assert.equal(bubbleOf({ mode: 'look', message: '要不要再短一点？' }).text, '等你一句话：要不要再短一点？')
-  assert.equal(bubbleOf({ mode: 'fail', message: '余额不够' }).text, '没干成：余额不够')
+  assert.equal(line.text, '执行中 · 42 秒')
+  assert.match(line.text, /^执行中 · (\d+ 分 \d+ 秒|\d+ 秒)$/)
+  assert.equal(bubbleOf({ mode: 'work', elapsed: '1 分 34 秒' }).text, '执行中 · 1 分 34 秒')
+  // 别的状态：定稿的几句
+  assert.equal(bubbleOf({ mode: 'done', artifact: '综述.docx' }).text, '做完了！')
+  assert.equal(bubbleOf({ mode: 'look', message: '要不要再短一点？' }).text, '需要关注！')
+  assert.equal(bubbleOf({ mode: 'fail', message: '余额不够' }).text, '出错了！')
+})
+
+test('平时那几句：每次张开换一句（不是定时换），按最宽的那句量', () => {
+  // 页面里：张开（换到 expanded）那一下换下一句；量的时候一句一句量取最宽
+  assert.match(page, /next === 'expanded' && scene !== 'expanded' && tips/)
+  assert.match(page, /tipAt = \(tipAt \+ 1\) % tips\.length/)
+  assert.match(page, /for \(const text of tips \|\| \[bubbleText\.textContent\]\)/)
+  assert.doesNotMatch(page, /setInterval\([^)]*tip/i)
 })
 
 test('字从表情区右边开始，中间留了空', () => {

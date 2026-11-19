@@ -4,7 +4,8 @@ import { chmodSync, copyFileSync, existsSync, mkdtempSync, mkdirSync, readdirSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after, describe } from 'node:test'
-import { classifyFailure, dshLaunch, patchFiles, payloadLayout, progressText, runTask } from '../../app/dsh/index.mjs'
+import { dshLaunch, patchFiles, payloadLayout, runTask } from '../../app/dsh/index.mjs'
+import { failText, progressText } from '../../app/dsh/progress.mjs'
 import { startFake } from './fake-messages.mjs'
 
 const KEY = 'sidemate-test-key'
@@ -88,7 +89,6 @@ async function runScript(taskId, respond) {
       prompt: '说',
       baseUrl: fake.url,
       searchBaseUrl: fake.url,
-      stallMs: 30_000,
       onEvent: (event) => {
         events.push(event)
         if (event.type === 'reply' || event.type === 'progress') trace.push(`${event.type}:${event.text}`)
@@ -105,16 +105,16 @@ async function runScript(taskId, respond) {
 }
 
 after(() => {
-  for (const dir of roots) rmSync(dir, { recursive: true, force: true })
+  for (const dir of roots) { try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) } catch { /* Windows 上进程刚收掉还占着文件：删不掉就留给系统清 */ } }
 })
 
 test('progress text stays a sentence', () => {
-  assert.equal(progressText({ sessionUpdate: 'tool_call', title: 'web_search' }), '正在查资料')
+  assert.equal(progressText({ sessionUpdate: 'tool_call', title: 'web_search' }), 'search')
   assert.equal(progressText({
     sessionUpdate: 'tool_call',
     title: 'write',
     rawInput: { file_path: '/tmp/桌伴/hello.docx' },
-  }), '正在写 hello.docx')
+  }), 'write hello.docx')
   assert.equal(progressText({
     sessionUpdate: 'agent_message_chunk',
     content: { type: 'text', text: '  写好了 \n' },
@@ -122,27 +122,19 @@ test('progress text stays a sentence', () => {
   assert.equal(progressText({ sessionUpdate: 'usage_update', used: 1, size: 2 }), '')
 })
 
-test('failure text splits the five observed replies', () => {
-  assert.equal(classifyFailure('Internal error: turn failed: Authentication Fails, Your api key is invalid'), 'key')
-  assert.equal(classifyFailure('Internal error: turn failed: Insufficient Balance'), 'quota')
-  assert.equal(classifyFailure('Internal error: turn failed: Rate limit reached for requests'), 'busy')
-  assert.equal(classifyFailure('Internal error: turn failed: Internal server error'), 'busy')
-  assert.equal(classifyFailure('Internal error: turn failed: DeepSeek Messages transport failed'), 'network')
-  assert.equal(classifyFailure('Internal error: turn failed: something else'), 'other')
-})
-
-test('patches keep the three R3 files and pin PowerShell to SystemRoot', () => {
+test('patches keep the R3 files; PowerShell 用 dsh 自己的默认查找顺序', () => {
   const files = patchFiles()
   assert.equal(files.some(file => file.endsWith('office.patch.yml')), true)
-  assert.equal(files.some(file => file.endsWith('ps51.patch.yml')), process.platform === 'win32')
+  // 审批用 dsh 原生的 ask：桌伴把申请转到任务窗
+  assert.equal(files.some(file => file.endsWith('ask.patch.yml')), true)
+  // 不再强制指向系统自带的 PowerShell 5.1
+  assert.equal(files.some(file => file.endsWith('ps51.patch.yml')), false)
   const office = readFileSync(new URL('../../app/dsh/office.patch.yml', import.meta.url), 'utf8')
-  const never = readFileSync(new URL('../../app/dsh/never.patch.yml', import.meta.url), 'utf8')
-  const ps51 = readFileSync(new URL('../../app/dsh/ps51.patch.yml', import.meta.url), 'utf8')
+  const ask = readFileSync(new URL('../../app/dsh/ask.patch.yml', import.meta.url), 'utf8')
   assert.match(office, /load_workspace_dependencies|dsh-tool-workspace-dependencies/)
   assert.match(office, /DSH_PRIMARY_RUNTIME/)
-  assert.match(never, /policy: never/)
-  assert.match(ps51, /SystemRoot/)
-  assert.doesNotMatch(ps51, /C:\\Windows/)
+  assert.match(ask, /policy: ask/)
+  assert.match(ask, /sandbox: workspace-write/)
 })
 
 test('a missing runtime reports an error and stays up', async () => {
@@ -154,7 +146,6 @@ test('a missing runtime reports an error and stays up', async () => {
     apiKey: KEY,
     payloadRoot: scratch('sidemate-empty-'),
     lowRoot: scratch('sidemate-low-'),
-    stallMs: 1000,
     onEvent: (event) => events.push(event),
   })
   const end = await handle.done
@@ -179,8 +170,9 @@ describe('fake messages', { concurrency: 1 }, () => {
     assert.equal(dumped.status, 0, text)
     assert.match(text, /workspace-dependencies/)
     assert.match(text, /skill-office/)
-    assert.match(text, /policy: never/)
-    assert.match(text, /session-title-llm[\s\S]*disabled: true|disabled: true[\s\S]*session-title-llm/)
+    assert.match(text, /policy: ask/)
+    // 起会话名那次调用打开了：任务名先用第一句话占位，dsh 起好再换上
+    assert.match(text, /session-title-llm[\s\S]{0,200}disabled: false/)
     assert.equal(text.includes(KEY), false)
   })
 
@@ -198,7 +190,6 @@ describe('fake messages', { concurrency: 1 }, () => {
           apiKey: KEY,
           prompt: '说一声好了',
           baseUrl: fake.url,
-          stallMs: 30_000,
           onEvent: (event) => events.push(event),
         })
         const handle = runTask(options)
@@ -219,32 +210,6 @@ describe('fake messages', { concurrency: 1 }, () => {
         assert.match(log, /usage_update/)
         assert.equal(treeHas(options.lowRoot, KEY), false)
       }
-    } finally {
-      await fake.close()
-    }
-  })
-
-  test('silence becomes an error and the process is gone', { timeout: 60_000 }, async () => {
-    ensureNode()
-    const fake = await startFake({ expectKey: KEY, respond: () => ({ kind: 'hang' }) })
-    const events = []
-    try {
-      const started = Date.now()
-      const handle = runTask(taskOptions({
-        taskId: 'stall',
-        apiKey: KEY,
-        prompt: '不要回',
-        baseUrl: fake.url,
-        stallMs: 2_000,
-        onEvent: (event) => events.push(event),
-      }))
-      const end = await handle.done
-      const elapsed = Date.now() - started
-      assert.equal(end.status, 'error')
-      assert.equal(events.some(event => event.type === 'error' && event.reason === 'stall' && event.message === '十分钟没动静，已经先停了'), true)
-      assert.ok(elapsed >= 1_500, `elapsed ${elapsed}`)
-      assert.ok(elapsed < 15_000, `elapsed ${elapsed}`)
-      assert.throws(() => process.kill(handle.pid, 0))
     } finally {
       await fake.close()
     }
@@ -294,46 +259,21 @@ process.stdin.on('data', (chunk) => {
     return root
   }
 
-  test('a quiet stretch shows one hint and then finishes', { timeout: 60_000 }, async () => {
+  // 静了好一会儿不再冒「还在等它回话」那一句：界面上的状态行自己说（pulse），这里只看不停、不报错
+  test('a quiet stretch finishes without a hint line', { timeout: 60_000 }, async () => {
     const events = []
     const handle = runTask(taskOptions({
       taskId: 'quiet',
       apiKey: KEY,
       prompt: '写长一点',
       payloadRoot: fakePeer({ waitMs: 2_000 }),
-      stallMs: 5_000,
-      stallHintMs: 500,
       onEvent: (event) => events.push(event),
     }))
     const end = await handle.done
     assert.equal(end.status, 'done', JSON.stringify(events))
-    const hint = '这一步要写的东西比较长，还在等它写完；不想等可以点停下。'
-    assert.equal(events.filter(event => event.type === 'progress' && event.text === hint).length, 1, JSON.stringify(events.map(event => [event.type, event.text || event.message || ''])))
+    assert.equal(events.some(event => event.type === 'progress' && event.hint === true), false, JSON.stringify(events.map(event => [event.type, event.text || event.message || ''])))
     assert.equal(events.some(event => event.type === 'reply' && event.text.includes('好了')), true)
     assert.equal(events.some(event => event.type === 'error'), false)
-    assert.throws(() => process.kill(handle.pid, 0))
-  })
-
-  test('a peer that never answers warns once, then stops with the new text', { timeout: 60_000 }, async () => {
-    const events = []
-    const handle = runTask(taskOptions({
-      taskId: 'hang-peer',
-      apiKey: KEY,
-      prompt: '不要回',
-      payloadRoot: fakePeer({ hang: true }),
-      stallMs: 2_000,
-      stallHintMs: 500,
-      onEvent: (event) => events.push(event),
-    }))
-    const end = await handle.done
-    assert.equal(end.status, 'error', JSON.stringify(events))
-    const hint = '这一步要写的东西比较长，还在等它写完；不想等可以点停下。'
-    const hints = events.filter(event => event.type === 'progress' && event.text === hint)
-    assert.equal(hints.length, 1, JSON.stringify(events.map(event => [event.type, event.text || event.message || ''])))
-    assert.ok(events.indexOf(hints[0]) < events.findIndex(event => event.type === 'error'))
-    const error = events.find(event => event.type === 'error')
-    assert.equal(error.reason, 'stall')
-    assert.equal(error.message, '十分钟没动静，已经先停了')
     assert.throws(() => process.kill(handle.pid, 0))
   })
 
@@ -358,7 +298,7 @@ process.stdin.on('data', (chunk) => {
     const events = []
     try {
       const end = await runTask({
-        ...taskOptions({ taskId: 'py', apiKey: KEY, prompt: '准备', stallMs: 30_000, baseUrl: fake.url }),
+        ...taskOptions({ taskId: 'py', apiKey: KEY, prompt: '准备', baseUrl: fake.url }),
         onEvent: (event) => events.push(event),
       }).done
       assert.equal(end.status, 'done', JSON.stringify(events))
@@ -371,7 +311,7 @@ process.stdin.on('data', (chunk) => {
 
   test('a scripted write shows up as an artifact', { timeout: 60_000 }, async () => {
     ensureNode()
-    const options = taskOptions({ taskId: 'file', apiKey: KEY, prompt: '写', stallMs: 30_000 })
+    const options = taskOptions({ taskId: 'file', apiKey: KEY, prompt: '写' })
     const target = join(options.workspace, 'hello.txt')
     const fake = await startFake({
       expectKey: KEY,
@@ -389,13 +329,13 @@ process.stdin.on('data', (chunk) => {
       assert.equal(end.status, 'done', JSON.stringify(events))
       assert.equal(readFileSync(target, 'utf8'), 'hello')
       assert.equal(events.some(event => event.type === 'artifact' && event.name === 'hello.txt' && event.path === target), true)
-      assert.equal(events.some(event => event.type === 'progress' && event.text === '正在写 hello.txt'), true)
+      assert.equal(events.some(event => event.type === 'progress' && event.text === 'write hello.txt'), true)
     } finally {
       await fake.close()
     }
   })
 
-  test('cancel stops the process tree within two seconds', { timeout: 60_000 }, async () => {
+  test('cancel stops the round within two seconds', { timeout: 60_000 }, async () => {
     ensureNode()
     const fake = await startFake({ expectKey: KEY, respond: () => ({ kind: 'hang' }) })
     try {
@@ -404,7 +344,6 @@ process.stdin.on('data', (chunk) => {
         apiKey: KEY,
         prompt: '停',
         baseUrl: fake.url,
-        stallMs: 60_000,
       }))
       await new Promise(resolve => setTimeout(resolve, 500))
       const started = Date.now()
@@ -412,14 +351,15 @@ process.stdin.on('data', (chunk) => {
       const end = await handle.done
       assert.equal(end.status, 'cancelled')
       assert.ok(Date.now() - started < 2_000)
-      await new Promise(resolve => setTimeout(resolve, 200))
-      assert.throws(() => process.kill(handle.pid, 0))
+      // 停下是 session/cancel：那个常驻的 dsh 进程不一定马上没（别的会话还要用），
+      // 收进程是桌伴退出时的事。
+      assert.ok(handle.pid > 0)
     } finally {
       await fake.close()
     }
   })
 
-  test('danger-full-access is rejected and the key stays out of the log', { timeout: 60_000 }, async () => {
+  test('danger-full-access asks the user; a refusal writes nothing and the key stays out of the log', { timeout: 60_000 }, async () => {
     ensureNode()
     const outside = join(scratch('sidemate-out-'), 'secret.txt')
     let sawRejection = false
@@ -427,8 +367,8 @@ process.stdin.on('data', (chunk) => {
       expectKey: KEY,
       respond: (body) => {
         const raw = JSON.stringify(body)
-        if (raw.includes('tool_result') || raw.includes('rejected') || raw.includes('sandbox')) {
-          sawRejection = /rejected|sandbox|denied|拒绝/i.test(raw)
+        if (raw.includes('tool_result')) {
+          sawRejection = /rejected|denied|拒绝/i.test(raw)
           return { kind: 'text', text: '停了' }
         }
         return {
@@ -446,19 +386,25 @@ process.stdin.on('data', (chunk) => {
     const events = []
     const logs = []
     try {
-      const handle = runTask(taskOptions({
+      let handle = null
+      handle = runTask(taskOptions({
         taskId: 'deny',
         apiKey: KEY,
         prompt: '写到外面',
         baseUrl: fake.url,
-        stallMs: 30_000,
-        onEvent: (event) => events.push(event),
+        onEvent: (event) => {
+          events.push(event)
+          // 用户说不行
+          if (event.type === 'permission') void handle.answerPermission(event.id, 'reject')
+        },
         onLog: (line) => logs.push(line),
       }))
       const end = await handle.done
       assert.equal(end.status, 'done', JSON.stringify({ events, calls: fake.calls.length }))
       assert.equal(existsSync(outside), false)
       assert.equal(sawRejection, true, JSON.stringify(fake.calls).slice(0, 2000))
+      // 越权先问用户，用户不点头就不写
+      assert.equal(events.some(event => event.type === 'permission' && event.outside === true), true)
       const log = readFileSync(handle.logPath, 'utf8')
       assert.equal(log.includes(KEY), false)
       assert.equal(logs.some(line => line.includes(KEY)), false)
@@ -478,14 +424,14 @@ process.stdin.on('data', (chunk) => {
         apiKey: KEY,
         prompt: '崩',
         baseUrl: fake.url,
-        stallMs: 30_000,
         onEvent: (event) => events.push(event),
       }))
       await new Promise(resolve => setTimeout(resolve, 400))
       process.kill(handle.pid, 'SIGKILL')
       const end = await handle.done
       assert.equal(end.status, 'error')
-      assert.equal(events.some(event => event.type === 'error' && event.reason === 'crash' && event.message === '没干成：后台程序中途退出了'), true)
+      // 中途退出：跟起不来一样算程序崩溃（Si301）
+      assert.equal(events.some(event => event.type === 'error' && event.reason === 'crash'), true)
     } finally {
       await fake.close()
     }
@@ -504,7 +450,6 @@ process.stdin.on('data', (chunk) => {
         apiKey: KEY,
         prompt: '重复',
         baseUrl: fake.url,
-        stallMs: 30_000,
         onEvent: (event) => events.push(event),
       }))
       const end = await handle.done
@@ -519,7 +464,7 @@ process.stdin.on('data', (chunk) => {
 
   test('a second round resumes the same session and only counts its own usage', { timeout: 60_000 }, async () => {
     ensureNode()
-    const shared = taskOptions({ apiKey: KEY, stallMs: 30_000, prompt: '第一轮' })
+    const shared = taskOptions({ apiKey: KEY, prompt: '第一轮' })
     let step = 0
     const fake = await startFake({
       expectKey: KEY,
@@ -563,7 +508,7 @@ process.stdin.on('data', (chunk) => {
 
   test('editing a file emits another artifact', { timeout: 60_000 }, async () => {
     ensureNode()
-    const shared = taskOptions({ apiKey: KEY, stallMs: 30_000, prompt: '写' })
+    const shared = taskOptions({ apiKey: KEY, prompt: '写' })
     const target = join(shared.workspace, 'hello.txt')
     let step = 0
     const fake = await startFake({
@@ -599,14 +544,14 @@ process.stdin.on('data', (chunk) => {
     }
   })
 
-  test('http failures keep their reason', { timeout: 120_000 }, async () => {
+  test('http failures keep their reason', { timeout: 300_000 }, async () => {
     ensureNode()
     const cases = [
-      { status: 401, body: { error: { type: 'authentication_error', message: 'Authentication Fails, Your api key is invalid' } }, reason: 'key' },
-      { status: 403, body: { error: { type: 'permission_error', message: '403 Forbidden' } }, reason: 'key' },
-      { status: 402, body: { error: { type: 'invalid_request_error', message: 'Insufficient Balance' } }, reason: 'quota' },
-      { status: 429, body: { error: { type: 'rate_limit_error', message: 'Rate limit reached for requests' } }, reason: 'busy' },
-      { status: 500, body: { error: { type: 'api_error', message: 'Internal server error' } }, reason: 'busy' },
+      { status: 401, body: { error: { type: 'authentication_error', message: 'Authentication Fails, Your api key is invalid' } }, reason: 'key', code: 'AUTH' },
+      { status: 403, body: { error: { type: 'permission_error', message: '403 Forbidden' } }, reason: 'key', code: 'AUTH' },
+      { status: 402, body: { error: { type: 'invalid_request_error', message: 'Insufficient Balance' } }, reason: 'quota', code: 'QUOTA' },
+      { status: 429, body: { error: { type: 'rate_limit_error', message: 'Rate limit reached for requests' } }, reason: 'busy', code: 'RATE_LIMIT' },
+      { status: 500, body: { error: { type: 'api_error', message: 'Internal server error' } }, reason: 'server', code: 'SERVER' },
     ]
     for (const item of cases) {
       const events = []
@@ -621,14 +566,21 @@ process.stdin.on('data', (chunk) => {
           apiKey: KEY,
           prompt: '试',
           baseUrl: fake.url,
-          stallMs: 60_000,
+          // 这几条要重试（429、500）：测试里等不起，把退避调短、只试一次
+          retryPolicy: { initialDelayMs: 10, maxDelayMs: 20, maxRetries: 1 },
           onEvent: (event) => events.push(event),
           onLog: (line) => logs.push(line),
         }))
         const end = await handle.done
         assert.equal(end.status, 'error', `${item.status} ${JSON.stringify(events)}`)
         const error = events.find(event => event.type === 'error')
-        assert.equal(error?.reason, item.reason, `${item.status} ${error?.message} ${logs.join('\n').slice(-500)}`)
+        assert.equal(error?.reason, item.reason, `${item.status} ${error?.raw} ${logs.join('\n').slice(-500)}`)
+        // dsh 的码和 HTTP 状态也带出来（壳照这个说停下那句、显示那一行）
+        assert.equal(error?.dshCode, item.code, `${item.status} ${JSON.stringify(error)}`)
+        assert.equal(error?.status, item.status, `${item.status} ${JSON.stringify(error)}`)
+        // 原文带出去（壳截到 80 个字显示），钥匙不在里面
+        assert.ok(error.raw.length > 0, `${item.status} 没带原文`)
+        assert.equal(error.raw.includes(KEY), false)
         assert.equal(logs.join('\n').includes(KEY), false)
         assert.match(logs.join('\n'), /turn failed|Authentication|Balance|Rate limit|server error|403/)
       } finally {
@@ -641,7 +593,8 @@ process.stdin.on('data', (chunk) => {
       apiKey: KEY,
       prompt: '试',
       baseUrl: 'http://127.0.0.1:1',
-      stallMs: 60_000,
+      // 连不上也要重试：测试里等不起，只试一次
+      retryPolicy: { initialDelayMs: 10, maxDelayMs: 20, maxRetries: 1 },
       onEvent: (event) => events.push(event),
     }))
     const end = await handle.done
@@ -656,7 +609,9 @@ process.stdin.on('data', (chunk) => {
     assert.deepEqual(replyTexts(events), ['你好'])
   })
 
-  test('a new message id starts another reply', { timeout: 60_000 }, async () => {
+  // 工具调用之前的那段是动手前的过程话：不算回答，不进回话
+  // 开工时动手前的头一句（「好的，我先…」）先当回话冒出来；收场时再出最后那段
+  test('the first message before a tool call shows up as the opening line', { timeout: 60_000 }, async () => {
     ensureNode()
     const { end, events } = await runScript('ids', (body) => {
       if (JSON.stringify(body).includes('tool_result')) return { kind: 'text', id: 'm2', chunks: ['乙', '方'] }
@@ -674,7 +629,8 @@ process.stdin.on('data', (chunk) => {
     assert.deepEqual(replyTexts(events), ['甲方', '乙方'])
   })
 
-  test('a tool call between text splits the reply once', { timeout: 60_000 }, async () => {
+  // 话 → 工具 → 话：开工那句先冒，再出最后那段
+  test('a tool call between text keeps the opening line and the last reply', { timeout: 60_000 }, async () => {
     ensureNode()
     const { end, events, trace } = await runScript('tool-split', (body) => {
       if (JSON.stringify(body).includes('tool_result')) return { kind: 'text', id: 'after', chunks: ['后', '面'] }
@@ -692,12 +648,13 @@ process.stdin.on('data', (chunk) => {
     assert.deepEqual(replyTexts(events), ['前面', '后面'])
     assert.deepEqual(trace.filter(item => item.startsWith('reply:') || item.startsWith('progress:')), [
       'reply:前面',
-      'progress:正在查资料',
+      'progress:search',
       'reply:后面',
     ])
   })
 
-  test('a usage update between text splits the reply once', { timeout: 60_000 }, async () => {
+  // usage_update 只是模型请求完了：这段话后面可能还有工具调用，不能当回答发出去
+  test('a usage update does not make the text a reply yet', { timeout: 60_000 }, async () => {
     ensureNode()
     const { end, events, trace } = await runScript('usage-split', (body) => {
       if (JSON.stringify(body).includes('tool_result')) return { kind: 'text', id: 'u2', chunks: ['下', '半'] }
@@ -712,10 +669,11 @@ process.stdin.on('data', (chunk) => {
       }
     })
     assert.equal(end.status, 'done', JSON.stringify(events))
+    // 开工那句（上半）在动手时才冒，不是在 usage_update 那一下
     assert.deepEqual(replyTexts(events), ['上半', '下半'])
-    assert.equal(trace[0], 'reply:上半')
-    assert.equal(trace[1], 'usage_update')
-    assert.ok(trace.indexOf('reply:下半') > 1)
+    assert.equal(trace[0], 'usage_update')
+    assert.ok(trace.indexOf('reply:上半') > 0, trace.join('|'))
+    assert.ok(trace.indexOf('reply:下半') > 1, trace.join('|'))
   })
 
   test('a blank reply is not emitted', { timeout: 60_000 }, async () => {
@@ -749,7 +707,7 @@ process.stdin.on('data', (chunk) => {
     })
     assert.equal(end.status, 'done', JSON.stringify(events))
     assert.equal(events.find(event => event.type === 'usage')?.searches, 2)
-    assert.equal(events.filter(event => event.type === 'progress' && event.text === '正在查资料').length, 2)
+    assert.equal(events.filter(event => event.type === 'progress' && event.text === 'search').length, 2)
   })
 
   test('a continued session with no usage baseline does not emit usage', { timeout: 120_000 }, async () => {
@@ -764,7 +722,7 @@ process.stdin.on('data', (chunk) => {
     })
     try {
       for (const mode of ['missing', 'unreadable', 'unparsed']) {
-        const options = taskOptions({ apiKey: KEY, stallMs: 30_000, prompt: '接着', baseUrl: fake.url })
+        const options = taskOptions({ apiKey: KEY, prompt: '接着', baseUrl: fake.url })
         const firstEvents = []
         const first = runTask({ ...options, taskId: `base-${mode}-1`, onEvent: (event) => firstEvents.push(event) })
         assert.equal((await first.done).status, 'done', `${mode} ${JSON.stringify(firstEvents)}`)
@@ -805,4 +763,11 @@ test('a private node copy can stand in for the payload node', () => {
   const copy = join(options.lowRoot, 'node-copy.exe')
   assert.equal(dshLaunch(options).command, payloadLayout(options.payloadRoot).node)
   assert.equal(dshLaunch({ ...options, node: copy }).command, copy)
+})
+
+test('工具失败时 dsh 回的那句错：从 tool_call_update 的 content 里取字', () => {
+  assert.equal(failText({ content: [{ type: 'content', content: { type: 'text', text: 'Error: old_string\n matched 2 times' } }] }), 'Error: old_string matched 2 times')
+  assert.equal(failText({ content: [{ type: 'text', text: 'boom' }] }), 'boom')
+  assert.equal(failText({}), '')
+  assert.equal(failText(null), '')
 })

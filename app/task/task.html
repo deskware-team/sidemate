@@ -1,36 +1,49 @@
 <!doctype html>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:">
 <title></title>
 <link rel="stylesheet" href="task.css">
 <div id="frame">
 <div id="panel">
 <header id="top">
   <div id="where">
-    <button id="path" type="button"></button>
-    <button id="recent" type="button">▾</button>
-    <div id="menu" hidden></div>
+    <button id="where-btn" type="button">
+      <span id="where-name"></span>
+      <svg id="where-caret" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2.5 4.5L5 7l2.5-2.5" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
   </div>
-  <button id="newtask" type="button"></button>
+  <div id="topright">
+    <button id="openfolder" type="button" hidden>
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5.2a1.2 1.2 0 0 1 1.2-1.2h2.9l1.4 1.6h5.3A1.2 1.2 0 0 1 14 6.8v5.4a1.2 1.2 0 0 1-1.2 1.2H3.2A1.2 1.2 0 0 1 2 12.2z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button id="newtask" type="button"></button>
+  </div>
 </header>
 <main id="flowwrap">
   <div id="flow"></div>
   <button id="latest" type="button" hidden></button>
 </main>
+<div id="banner" hidden></div>
+<div id="notes" hidden></div>
 <div id="tagrow" hidden>
   <div id="tags"></div>
-  <button id="addfile" type="button" title="加文件">＋</button>
 </div>
-<div id="box">
-  <textarea id="input" rows="2"></textarea>
-  <button id="send" type="button"></button>
+<div id="bottom">
+  <div id="inputwrap" class="fold">
+    <div id="cap"><textarea id="input" rows="1"></textarea></div>
+    <div id="tools">
+      <div id="chiprow"><button id="addfile" type="button"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 2.5v9M2.5 7h9" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg><span data-t="input.fileLabel"></span></button></div>
+      <button id="stop" type="button" hidden data-t="input.stop"></button>
+      <button id="send" type="button"><svg class="ico" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 12V2M3 5.5 7 1.5l4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="sendtext" data-t="input.send"></span></button>
+    </div>
+  </div>
+  <div id="handlebar"><div id="handle"></div></div>
 </div>
 <div id="dropmask" hidden>
-  <div class="zone" data-cell="template"><b></b><span></span></div>
-  <div class="zone" data-cell="materials"><b></b><span></span></div>
+  <div class="zone"><b data-t="desk.dropHere"></b></div>
 </div>
 <div id="tagmenu" hidden></div>
-<svg id="docicon" width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" hidden><path d="M3 1.5h5.5L11.5 4.5V12.5H3z" fill="none" stroke="currentColor"/><path d="M8.5 1.5v3h3" fill="none" stroke="currentColor"/></svg>
+<svg id="docicon" width="24" height="24" viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M6.5 3.5h7l4 4v13h-11z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M13.5 3.5v4h4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>
 </div>
 </div>
 <script type="module" src="task.js"></script>

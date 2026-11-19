@@ -1,0 +1,182 @@
+/* Kilo 模型使用须知的同意弹窗的样子。
+   颜色、字号、圆角都收在下面的变量里。 */
+:root {
+  --paper: #f5f1e8;      /* 纸底 */
+  --ink: #22201c;        /* 墨色，正文 */
+  --faint: #5f5a52;      /* 淡墨，次要文字 */
+  --line: #e3ded3;       /* 边线 */
+  --accent: #c53a22;     /* 印红，要点框的边 */
+  --radius-win: 12px;    /* 弹窗圆角 */
+  --radius-box: 8px;     /* 框和按钮的圆角 */
+  --font: 'Noto Sans SC', 'Microsoft YaHei UI', sans-serif;
+}
+
+body {
+  margin: 0;
+  box-sizing: border-box;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-win);
+  color: var(--ink);
+  font-family: var(--font);
+}
+
+main {
+  box-sizing: border-box;
+  height: 100vh;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 没有系统标题栏：顶上内边距那 24 高拿来拖窗口（下面是标题，不盖住别的）；
+   右上角一个圆形关闭按钮，嵌在窗口里 */
+#winbar { position: fixed; top: 0; left: 0; right: 0; height: 24px; -webkit-app-region: drag; z-index: 10; }
+#win-close {
+  position: fixed; top: 10px; right: 10px; width: 24px; height: 24px; margin: 0; padding: 0; z-index: 11;
+  border: 0; border-radius: 50%; background: rgba(34, 32, 28, 0.06); cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+#win-close::before, #win-close::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 1.5px; border-radius: 1px;
+  background: var(--faint); transform: translate(-50%, -50%) rotate(45deg);
+}
+#win-close::after { transform: translate(-50%, -50%) rotate(-45deg); }
+#win-close:hover { background: rgba(34, 32, 28, 0.12); }
+#win-close:hover::before, #win-close:hover::after { background: var(--ink); }
+#win-close:focus-visible { outline: 2px solid var(--faint); outline-offset: 1px; }
+
+/* 头：标题加版本 */
+header { display: flex; flex-direction: column; gap: 2px; }
+h1 { margin: 0; font-size: 16px; font-weight: 500; line-height: 19px; color: var(--ink); }
+.version { margin: 0; font-size: 11px; line-height: 13px; color: var(--faint); }
+
+/* 五条要点：白底红边的一张卡，每条前面一个圆点 */
+#summary {
+  margin: 0;
+  box-sizing: border-box;
+  height: 239px;
+  flex: none;
+  list-style: none;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-box);
+  overflow: hidden;
+}
+#summary li { font-size: 13px; font-weight: 400; line-height: 21px; color: var(--ink); }
+#summary li::before { content: '· '; }
+
+/* 条款全文：白框，固定高度，能滚；底下压一条提示 */
+#terms-wrap { position: relative; height: 200px; flex: none; }
+#terms {
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-box);
+}
+#terms .terms-title { margin: 0 0 8px; font-size: 12px; font-weight: 500; line-height: 14px; color: var(--ink); }
+#terms p { margin: 0 0 8px; font-size: 11px; font-weight: 400; line-height: 18px; color: var(--faint); }
+/* 最后一段下面留出提示条的位置，滚到底时最后一行不会被盖住 */
+#terms p:last-child { margin-bottom: 29px; }
+/* 滚到底以后提示收起来 */
+#hint[hidden] { display: none; }
+#hint {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 29px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border-radius: 0 0 7px 7px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 13px;
+  color: var(--faint);
+}
+
+/* 两个勾：框 16 见方，勾上的话框里画一个勾 */
+label.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: none;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 21px;
+  color: var(--faint);
+}
+label.check input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  background: #fff;
+  border: 1.5px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+label.check input:disabled { background: var(--paper); cursor: default; }
+label.check input:checked { border-color: var(--ink); }
+label.check input:checked::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--ink);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+
+/* 出错时的一句红字 */
+.fine { font-size: 11px; line-height: 14px; color: var(--accent); }
+#message { margin: 0; }
+#message:empty { display: none; }
+
+/* 底下两个按钮：不用了（白底）、同意，开始用（没勾时是灰的） */
+#actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex: none; }
+button {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 16px;
+  border-radius: var(--radius-box);
+  cursor: pointer;
+}
+button.secondary {
+  height: 30px;
+  padding: 0 14px;
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-weight: 400;
+}
+#agree {
+  height: 28px;
+  padding: 0 16px;
+  background: var(--line);
+  border: 0;
+  color: var(--faint);
+  font-weight: 500;
+}
+#agree:not(:disabled) { background: var(--ink); color: var(--paper); }
+#agree:disabled { cursor: default; }

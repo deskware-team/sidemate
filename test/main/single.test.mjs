@@ -51,21 +51,26 @@ test('one sidemate per user data', { skip: process.env.SIDEMATE_SINGLE ? false :
   const electron = createRequire(path.join(root, 'package.json'))('electron')
   const homeA = path.join(lab, 'home-a')
   const homeC = path.join(lab, 'home-c')
+  // 隔离的 LOCALAPPDATA：程序数据（%LOCALAPPDATA%\sidemate）跟着走，不碰真用户目录
+  const localA = path.join(lab, 'local-a')
+  const localC = path.join(lab, 'local-c')
   const userA = path.join(lab, 'user-a')
   const userC = path.join(lab, 'user-c')
   mkdirSync(homeA)
   mkdirSync(homeC)
+  mkdirSync(localA)
+  mkdirSync(localC)
   const pids = []
   try {
     const a = start(electron, ['.', '--remote-debugging-port=9341', '--no-sandbox', '--disable-gpu', `--user-data-dir=${userA}`], {
-      HOME: homeA, USERPROFILE: homeA, SIDEMATE_PET_STILL: '1',
+      HOME: homeA, USERPROFILE: homeA, LOCALAPPDATA: localA, SIDEMATE_PET_STILL: '1',
     })
     pids.push(a.child.pid)
     const first = await waitPages(9341, 'page.html', 1)
     assert.equal(first.filter((item) => item.url.includes('page.html')).length, 1, `first run window missing: ${first.map((item) => item.url).join(' ')} ${a.stderr()}`)
 
     const b = start(electron, ['.', '--no-sandbox', '--disable-gpu', `--user-data-dir=${userA}`], {
-      HOME: homeA, USERPROFILE: homeA, SIDEMATE_PET_STILL: '1',
+      HOME: homeA, USERPROFILE: homeA, LOCALAPPDATA: localA, SIDEMATE_PET_STILL: '1',
     })
     pids.push(b.child.pid)
     const code = await new Promise((resolve) => {
@@ -79,10 +84,10 @@ test('one sidemate per user data', { skip: process.env.SIDEMATE_SINGLE ? false :
     const pages = after.filter((item) => item.url.includes('page.html'))
     assert.equal(pages.length, 1, `expected 1 page.html, got ${pages.length}: ${after.map((item) => item.url).join(' ')}`)
     assert.equal(after.some((item) => item.url.includes('task.html')), false, 'task window appeared')
-    assert.equal(bootCount(path.join(userA, 'task.log')), 1, 'task.log boot lines')
+    assert.equal(bootCount(path.join(localA, 'sidemate', 'data', 'task.log')), 1, 'task.log boot lines')
 
     const c = start(electron, ['.', '--remote-debugging-port=9342', '--no-sandbox', '--disable-gpu', `--user-data-dir=${userC}`], {
-      HOME: homeC, USERPROFILE: homeC, SIDEMATE_PET_STILL: '1',
+      HOME: homeC, USERPROFILE: homeC, LOCALAPPDATA: localC, SIDEMATE_PET_STILL: '1',
     })
     pids.push(c.child.pid)
     const own = await waitPages(9342, 'page.html', 1)

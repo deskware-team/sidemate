@@ -79,11 +79,18 @@ test('链接：只显示文字，地址是原网址，前后的字都在', () =>
   assert.equal(bold.link, 'https://example.com/a')
 })
 
-test('链接：javascript: 和 file: 不成链接，整串当普通字', () => {
+test('链接：javascript: 和 file: 不成链接；[文字](不是网址) 只留文字', () => {
   const blocks = markdownBlocks('[点我](javascript:alert(1)) 和 [文件](file:///C:/秘密.txt)')
   const all = blocks.flatMap((one) => one.segs ?? [])
   assert.equal(all.some((one) => one.link), false)
-  assert.equal(all.map((one) => one.text).join(''), '[点我](javascript:alert(1)) 和 [文件](file:///C:/秘密.txt)')
+  assert.equal(all.map((one) => one.text).join(''), '[点我](javascript:alert(1)) 和 文件')
+})
+
+test('链接：模型指着任务文件夹里的文件（[摘要.docx](摘要.docx)）只显示文件名，不露方括号', () => {
+  const blocks = markdownBlocks('摘要稿已经生成并交付：[两份中医资料内容摘要.docx](两份中医资料内容摘要.docx)（共 5 页）。')
+  const all = blocks.flatMap((one) => one.segs ?? [])
+  assert.equal(all.some((one) => one.link), false)
+  assert.equal(all.map((one) => one.text).join(''), '摘要稿已经生成并交付：两份中医资料内容摘要.docx（共 5 页）。')
 })
 
 test('裸网址：成链接，显示原网址；句尾的句读不算进网址', () => {
@@ -104,6 +111,34 @@ test('分隔线：单独一行的 ---、***、___ 不露字符', () => {
     assert.deepEqual(markdownBlocks(`上段\n\n${bar}\n\n下段`).map((one) => one.type), ['p', 'hr', 'p'])
     assert.deepEqual(markdownBlocks(`上段\n${bar}\n下段`).map((one) => one.type), ['p', 'hr', 'p'])
   }
+})
+
+test('三个以上星号包住的字在段里也是粗体，单独一行的 *** 还是分隔线', () => {
+  const blocks = markdownBlocks('****中芯国际三季度净利 73.14 亿元****')
+  assert.equal(blocks[0].type, 'p')
+  const segs = blocks[0].segs
+  assert.equal(segs.some((one) => one.text.includes('*')), false)
+  assert.equal(segs.find((one) => one.bold).text, '中芯国际三季度净利 73.14 亿元')
+  assert.deepEqual(markdownBlocks('***').map((one) => one.type), ['hr'])
+})
+
+test('以「来源：」开头的段落带 src 标记，几行来源合成的一段也算', () => {
+  const one = markdownBlocks('来源：甲站 [报道](https://a.example/1)')
+  assert.equal(one[0].type, 'p')
+  assert.equal(one[0].src, true)
+  // 连续几行来源合成的一段：只给整个段落一个标记，里面的链接照旧拆出来
+  const merged = markdownBlocks('来源：甲站 [报道](https://a.example/1)\n来源：丙站 [转载](https://c.example/2)')
+  assert.equal(merged.length, 1)
+  assert.equal(merged[0].src, true)
+  assert.equal(merged[0].segs.filter((seg) => seg.link).length, 2)
+  // 别的段落不带
+  const plain = markdownBlocks('来源在后：另一段\n\n来源：甲站 [报道](https://a.example/1)')
+  assert.equal(plain[0].src, undefined)
+  assert.equal(plain[1].src, true)
+  // 列表、引用里的来源不给
+  const bullet = markdownBlocks('- 来源：甲站')
+  assert.equal(bullet[0].type, 'ul')
+  assert.equal(bullet[0].src, undefined)
 })
 
 test('开链接：主进程那边只认 http(s)，带空白和控制字符的一律不开', () => {

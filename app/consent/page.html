@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
+<title data-t="consent.title"></title>
+<link rel="stylesheet" href="page.css">
+<div id="winbar"></div>
+<button id="win-close" type="button" data-t-title="frame.close"></button>
+<main>
+  <header>
+    <h1 data-t="consent.title"></h1>
+    <p class="version" id="version"></p>
+  </header>
+  <ul id="summary"></ul>
+  <div id="terms-wrap">
+    <div id="terms" tabindex="0"></div>
+    <p id="hint" data-t="consent.scrollHint"></p>
+  </div>
+  <label class="check">
+    <input type="checkbox" id="check-terms" disabled>
+    <span id="label-terms"></span>
+  </label>
+  <label class="check">
+    <input type="checkbox" id="check-cross" disabled>
+    <span id="label-cross"></span>
+  </label>
+  <p id="message" class="fine"></p>
+  <div id="actions">
+    <button id="cancel" type="button" class="secondary" data-t="consent.decline"></button>
+    <button id="agree" type="button" disabled data-t="consent.agree"></button>
+  </div>
+</main>
+<script type="module" src="page.js"></script>

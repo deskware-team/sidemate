@@ -1,5 +1,5 @@
 // 小岛的样子：
-// - 有事不再自动冒字：状态变了只改眼神，不自己张开
+// - 有事不自动冒字：状态变了只改眼神，不自己张开
 // - 鼠标停 0.3 秒才张开冒一行（看进度用），离开约 0.4 秒收回
 // - 首次运行出场那一行照旧
 // 纯函数，不碰 electron，好测。
@@ -14,7 +14,7 @@ export function onHover(scene, waited, hoverMs) {
   return { expand: scene === 'strip' && waited >= hoverMs }
 }
 
-// 要张开的时候：托盘、细线、张着的都不再张开
+// 要张开的时候：托盘、细线、张着的都不张开
 export function onExpand(scene) {
   if (scene === 'tray' || scene === 'line') return { expand: false }
   if (scene === 'expanded') return { expand: false }

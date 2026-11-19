@@ -1,7 +1,9 @@
-// 置顶开关：小岛右键菜单里一个勾选项「保持在最前」。
+// 置顶开关：小岛右键菜单里一个勾选项「置顶」。
 // 勾上：小岛压在别的置顶窗口上面（层级 'screen-saver'）。
 // 不勾：小岛跟普通窗口一样，会被别的窗口盖住；任务窗也跟着不置顶。
 // 这一层不碰 Electron，方便拿假的窗来测。
+
+import { t } from '../copy/copy.mjs'
 
 // 勾上时的层级
 export const ON_TOP_LEVEL = 'screen-saver'
@@ -46,7 +48,7 @@ export function createOnTop(options = {}) {
   function menuItem() {
     return {
       type: 'checkbox',
-      label: '保持在最前',
+      label: t('menu.onTop'),
       checked: onTop,
       click: (item) => set(item && typeof item.checked === 'boolean' ? item.checked : !onTop),
     }

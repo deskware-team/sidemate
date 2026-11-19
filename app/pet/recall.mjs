@@ -1,10 +1,9 @@
 // 叫回小岛
-// 托盘图标、托盘菜单「显示桌伴」：小岛一定回到最前、看得见。
-// 三种叫不回来的情况都算上：
-//   1. 被「收到托盘」藏起来了；
-//   2. 没勾「保持在最前」，被别的窗口盖住了；
-//   3. 全屏程序盖住顶边，收成了一条细线。
-// 叫的时候不改用户在右键菜单里勾的「保持在最前」：没勾就临时置顶一小会儿，
+// 点托盘图标：小岛一定回到最前、看得见。
+// 两种叫不回来的情况都算上：
+//   1. 没勾「置顶」，被别的窗口盖住了；
+//   2. 全屏程序盖住顶边，收成了一条细线。
+// 叫的时候不改用户在右键菜单里勾的「置顶」：没勾就临时置顶一小会儿，
 // 到了时候照旧不置顶；也不抢焦点（用户正在打字的窗口不该失焦）。
 // 这一层不碰 Electron，方便拿假的窗来测。
 
@@ -24,7 +23,7 @@ export function createRecaller(options = {}) {
   const showWindow = options.showWindow || (() => {})
   // 提到前面（不抢焦点）
   const raiseWindow = options.raiseWindow || (() => {})
-  // 用户勾没勾「保持在最前」
+  // 用户勾没勾「置顶」
   const getOnTop = options.getOnTop || (() => true)
   // 直接往窗上设层级，不动存着的勾选
   const setWindowTop = options.setWindowTop || (() => {})
@@ -46,7 +45,7 @@ export function createRecaller(options = {}) {
     const before = getScene()
     const after = recallScene(before)
     if (after !== before) setScene(after)
-    // 藏到托盘的：重新露脸
+    // 露脸（万一没显示着）
     showWindow()
     if (!getOnTop()) {
       // 被别的窗口盖着：临时置顶一下，才提得到前面

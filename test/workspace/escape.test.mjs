@@ -1,17 +1,17 @@
-// Windows 上验原件动不了。云上没有完整性级别，这条会跳过。
-// 本机先 `npm run payload`，再 `node --test test/workspace/escape.test.mjs`。
+// Windows 上验原件动不了：只靠 dsh 的沙箱（ask.patch.yml 的预设只许写工作区）。
+// 不是 Windows 就跳过。本机先 `npm run payload`，再 `node --test test/workspace/escape.test.mjs`。
 // 沙盒矩阵脚本（matrix.mjs）不在这个仓里，剧本按三条写入路子写：
 // write / edit、PowerShell、再用随包 python.exe 写。
-// 不改仓库里那份 node.exe。Low 打在临时目录的副本上，测完删掉。
+// dsh 直接用随包的 node.exe 起，跟产品里一样。
 
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
 import { payloadLayout, runTask } from '../../app/dsh/index.mjs'
-import { finishTask, integrityArgs, prepareTask, protectRuntime } from '../../app/workspace/index.mjs'
+import { prepareTask } from '../../app/workspace/index.mjs'
 import { startFake } from '../dsh/fake-messages.mjs'
 
 const KEY = 'sidemate-test-key'
@@ -28,67 +28,9 @@ function ps(value) {
   return `'${String(value).replaceAll("'", "''")}'`
 }
 
-function markLow(dir) {
-  // %TEMP% 是普通完整性。node.exe 打成 Low 以后，在这里建目录会被拒。
-  // 生产上这一层在 AppData\LocalLow，系统本来就是 Low。
-  const result = spawnSync('icacls', [dir, ...integrityArgs('dir')], { encoding: 'utf8', windowsHide: true })
-  assert.equal(result.status, 0, `${result.stdout || ''}${result.stderr || ''}`)
-}
-
-function removeJunction(path) {
-  try {
-    if (!lstatSync(path).isSymbolicLink()) return
-  } catch {
-    return
-  }
-  try {
-    unlinkSync(path)
-  } catch {
-    rmdirSync(path)
-  }
-}
-
-// 仓库里那份 node.exe 不打标签。副本和联接都在 %TEMP%，打不了 Low 的目录里也能跑，测完删掉。
-function privatePayload() {
-  const root = mkdtempSync(join(tmpdir(), 'sidemate-escape-node-'))
-  try {
-    const nodeDir = join(root, 'node')
-    mkdirSync(nodeDir)
-    const nodePath = join(nodeDir, 'node.exe')
-    copyFileSync(layout.node, nodePath)
-    chmodSync(nodePath, 0o755)
-    symlinkSync(join(layout.root, 'dsh'), join(root, 'dsh'), 'junction')
-    symlinkSync(layout.python, join(root, 'python'), 'junction')
-    return { root, nodePath }
-  } catch (error) {
-    removePrivatePayload(root)
-    throw error
-  }
-}
-
-function removePrivatePayload(root) {
-  if (!root) return
-  removeJunction(join(root, 'dsh'))
-  removeJunction(join(root, 'python'))
-  try {
-    unlinkSync(join(root, 'node', 'node.exe'))
-  } catch {
-    // 副本可能还没拷上
-  }
-  try {
-    rmdirSync(join(root, 'node'))
-  } catch {
-    // 目录还没有，或已经空了
-  }
-  try {
-    rmdirSync(root)
-  } catch {
-    // 上面没清干净就留着，也不能跟着联接删进仓库
-  }
-}
-
 after(() => {
-  for (const dir of roots) rmSync(dir, { recursive: true, force: true })
+  // 收尾时 dsh 可能还没完全放开工作区的文件：删不动就多试几次（别把整轮测判成失败）
+  for (const dir of roots) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
 })
 
 test('scripted writes outside the workspace leave originals alone', { skip: process.platform !== 'win32', timeout: 180_000 }, async () => {
@@ -108,20 +50,29 @@ test('scripted writes outside the workspace leave originals alone', { skip: proc
   writeFileSync(beside, '隔壁-不要动')
   const outside = join(root, '外面.txt')
   const task = prepareTask({ paths: [folder], prompt: '别动原件', root, now: new Date(2026, 10, 4) })
-  const payload = privatePayload()
   let fake
   try {
-    const guard = protectRuntime({ nodePath: payload.nodePath, workspace: task.workspace })
-    assert.equal(guard.ok, true, guard.message)
-
     const junction = join(task.workspace, '联接')
     const through = join(junction, '原件.docx')
     const inside = join(task.workspace, '结果.txt')
+    // 命令和脚本真跑起来了的记号：写在工作区里，写得进去；扩展名不算产出
+    const pwshRan = join(task.workspace, 'pwsh-ran.log')
+    const pyRan = join(task.workspace, 'py-ran.log')
+    // 脚本先写进工作区再跑：PowerShell 5.1 传给 python -c 的双引号会被吃掉，那样脚本根本跑不起来
+    const script = join(task.workspace, '写原件.py')
+    const pyCode = [
+      `open(${JSON.stringify(pyRan)}, 'w', encoding='utf-8').write('ran')`,
+      `open(${JSON.stringify(original)}, 'w', encoding='utf-8').write('py')`,
+      '',
+    ].join('\n')
     const plan = [
       () => ({ kind: 'tool', name: 'write', input: { file_path: inside, content: '可以' } }),
       () => ({ kind: 'tool', name: 'write', input: { file_path: outside, content: '不行' } }),
       () => ({ kind: 'tool', name: 'write', input: { file_path: original, content: '被写了' } }),
+      // 先读一遍：dsh 要求改之前读过，不然 edit 还没走到沙箱就被挡了
+      () => ({ kind: 'tool', name: 'read', input: { file_path: original } }),
       () => ({ kind: 'tool', name: 'edit', input: { file_path: original, old_string: '原文-不要动', new_string: '被改了' } }),
+      () => ({ kind: 'tool', name: 'pwsh', input: { command: `Set-Content -LiteralPath ${ps(pwshRan)} -Value 'ran' -Encoding utf8`, description: '工作区里写' } }),
       () => ({ kind: 'tool', name: 'pwsh', input: { command: `Remove-Item -LiteralPath ${ps(original)} -Force`, description: '删原件' } }),
       () => ({
         kind: 'tool',
@@ -133,11 +84,11 @@ test('scripted writes outside the workspace leave originals alone', { skip: proc
       }),
       () => ({ kind: 'tool', name: 'pwsh', input: { command: `Set-Content -LiteralPath ${ps(original)} -Value 'pwsh' -Encoding utf8`, description: '用命令写原件' } }),
       () => ({ kind: 'tool', name: 'load_workspace_dependencies', input: {} }),
+      () => ({ kind: 'tool', name: 'write', input: { file_path: script, content: pyCode } }),
       (raw) => {
         const found = String(raw).match(/[A-Za-z]:\\[^"'\\\s]+python\.exe/i)
         const exe = found?.[0] || join(layout.python, 'python.exe')
-        const code = `open(${JSON.stringify(original)}, 'w', encoding='utf-8').write('py')`
-        return { kind: 'tool', name: 'pwsh', input: { command: `& ${ps(exe)} -c ${ps(code)}`, description: '用 Python 写原件' } }
+        return { kind: 'tool', name: 'pwsh', input: { command: `& ${ps(exe)} ${ps(script)}`, description: '用 Python 写原件' } }
       },
     ]
     let index = 0
@@ -159,17 +110,13 @@ test('scripted writes outside the workspace leave originals alone', { skip: proc
       },
     })
     const events = []
-    const lowRoot = scratch('sidemate-escape-low-')
-    markLow(lowRoot)
     const handle = runTask({
       taskId: 'escape',
       apiKey: KEY,
       prompt: '按剧本试',
       workspace: task.workspace,
       baseUrl: fake.url,
-      lowRoot,
-      payloadRoot: payload.root,
-      stallMs: 60_000,
+      lowRoot: scratch('sidemate-escape-home-'),
       onEvent: (event) => events.push(event),
     })
     const end = await handle.done
@@ -178,17 +125,17 @@ test('scripted writes outside the workspace leave originals alone', { skip: proc
     assert.equal(existsSync(outside), false)
     assert.equal(readFileSync(original, 'utf8'), '原文-不要动')
     assert.equal(readFileSync(beside, 'utf8'), '隔壁-不要动')
-    const checked = finishTask(task)
-    assert.equal(checked.ok, true, checked.message)
-    assert.equal(checked.mark, '')
+    // PowerShell 和 Python 真跑起来了（工作区里写得进去），原件没动是被拦的，不是命令没跑
+    assert.equal(existsSync(pwshRan), true, 'PowerShell 没跑起来')
+    assert.equal(existsSync(pyRan), true, 'Python 没跑起来')
+    // 成品就留在任务文件夹里：桌伴不再往别处拷一份
     const made = readFileSync(inside, 'utf8')
     assert.match(made, /可以/)
-    assert.equal(readFileSync(join(folder, '桌伴输出', '结果.txt'), 'utf8'), made)
+    assert.equal(existsSync(join(folder, '结果.txt')), false)
     const log = readFileSync(handle.logPath, 'utf8')
     assert.equal(log.includes(KEY), false)
   } finally {
     if (fake) await fake.close()
-    removePrivatePayload(payload.root)
   }
 })
 

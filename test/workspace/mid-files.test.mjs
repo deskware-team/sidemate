@@ -1,9 +1,12 @@
+// 成品留在任务文件夹根目录：模型交稿（present）的那几份是成品，
+// 没交稿但根目录里有文件动了也算「文件变动」。过程文件、用户给的副本都不算。
+
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
-import { OUTPUT_NAME, copyOutputs } from '../../app/workspace/index.mjs'
+import { createFileWatcher } from '../../app/dsh/artifacts.mjs'
 
 const roots = []
 
@@ -14,46 +17,45 @@ function scratch(prefix) {
 }
 
 after(() => {
-  for (const dir of roots) rmSync(dir, { recursive: true, force: true })
+  for (const dir of roots) { try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) } catch { /* Windows 上进程刚收掉还占着文件：删不掉就留给系统清 */ } }
 })
 
-test('这一轮出了成品，中间的 txt 不出卡也不拷进「桌伴输出」', () => {
+test('这一轮写出来的成品算动过的文件', () => {
   const root = scratch('sidemate-mid-')
-  const ws = join(root, '任务', '这一轮')
-  const outputDir = join(ws, OUTPUT_NAME)
-  mkdirSync(outputDir, { recursive: true })
+  const ws = join(root, '任务')
+  mkdirSync(ws, { recursive: true })
   writeFileSync(join(ws, '本周周报.docx'), '成品')
-  writeFileSync(join(ws, 'dd.txt'), '中间文件')
-  writeFileSync(join(outputDir, 'table_dump.txt'), '表格转储')
-  const made = copyOutputs({ workspace: ws, outputDir, snapshot: [] })
-  assert.deepEqual(made.map((one) => one.name), ['本周周报.docx'])
-  // 中间的 txt 没拷进「桌伴输出」
-  assert.equal(existsSync(join(outputDir, 'dd.txt')), false)
-  // 已经在「桌伴输出」里的照留不删
-  assert.equal(existsSync(join(outputDir, 'table_dump.txt')), true)
-  assert.equal(readdirSync(outputDir).sort().join(','), 'table_dump.txt,本周周报.docx')
+  const watcher = createFileWatcher(ws)
+  writeFileSync(join(ws, '另一份.docx'), '又一份')
+  // 开工前就有的那份不算这一轮动过的
+  const changed = watcher.changed()
+  assert.deepEqual(changed.map((one) => one.name).sort(), ['另一份.docx'])
+  // 再问一次：不重复报
+  assert.deepEqual(watcher.changed(), [])
 })
 
-test('这一轮只有 txt，没有成品，txt 照旧算产出', () => {
-  const root = scratch('sidemate-only-txt-')
-  const ws = join(root, '任务', '这一轮')
-  const outputDir = join(ws, OUTPUT_NAME)
-  mkdirSync(outputDir, { recursive: true })
+test('用户给的副本和过程文件不算动过的文件', () => {
+  const root = scratch('sidemate-only-')
+  const ws = join(root, '任务')
+  mkdirSync(join(ws, 'received'), { recursive: true })
+  mkdirSync(join(ws, '.sidemate'), { recursive: true })
+  writeFileSync(join(ws, 'received', '范本.docx'), '用户的')
+  writeFileSync(join(ws, '.sidemate', '过程.txt'), '过程的')
+  const watcher = createFileWatcher(ws)
+  writeFileSync(join(ws, 'received', '新来的.docx'), '用户的')
+  writeFileSync(join(ws, '.sidemate', '临时.txt'), '过程的')
   writeFileSync(join(ws, '说明.txt'), '说明')
-  const made = copyOutputs({ workspace: ws, outputDir, snapshot: [] })
-  assert.deepEqual(made.map((one) => one.name), ['说明.txt'])
-  assert.equal(made[0].to, join(outputDir, '说明.txt'))
-  assert.equal(readdirSync(outputDir).sort().join(','), '说明.txt')
+  const changed = watcher.changed()
+  assert.deepEqual(changed.map((one) => one.name), ['说明.txt'])
 })
 
-test('扩展名不分大小写：DOCX 也算成品，txt 照样被筛掉', () => {
-  const root = scratch('sidemate-case-')
-  const ws = join(root, '任务', '这一轮')
-  const outputDir = join(ws, OUTPUT_NAME)
-  mkdirSync(outputDir, { recursive: true })
-  writeFileSync(join(ws, '本周周报.DOCX'), '成品')
-  writeFileSync(join(ws, 'dd.TXT'), '中间文件')
-  const made = copyOutputs({ workspace: ws, outputDir, snapshot: [] })
-  assert.deepEqual(made.map((one) => one.name), ['本周周报.DOCX'])
-  assert.equal(existsSync(join(outputDir, 'dd.TXT')), false)
+test('改过的文件也算动过的（内容变了）', () => {
+  const root = scratch('sidemate-edit-')
+  const ws = join(root, '任务')
+  mkdirSync(ws, { recursive: true })
+  const file = join(ws, '周报.docx')
+  writeFileSync(file, '第一版')
+  const watcher = createFileWatcher(ws)
+  writeFileSync(file, '第二版')
+  assert.deepEqual(watcher.changed().map((one) => one.name), ['周报.docx'])
 })
