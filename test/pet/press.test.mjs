@@ -1,4 +1,4 @@
-// 小岛被点那一下（设计稿第三节②）：缩到 0.96 再弹回（80ms 缩 + 120ms 回）。
+// 小岛被点那一下：缩到 0.96 再弹回（80ms 缩 + 120ms 回）。
 
 import assert from 'node:assert/strict'
 import test from 'node:test'

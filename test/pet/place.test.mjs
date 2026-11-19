@@ -84,7 +84,7 @@ test('从张开的样子开始拖：收回的小条居中对着鼠标，不往�
   assert.equal(grab.x, 112 / 2, '张开的偏移不带进小条：抓的是半条宽')
   const at = dragBounds(point, grab, { work: area, island: 112 })
   assert.equal(at.x, point.x - 56, '小条居中对着鼠标')
-  // 以前拿张开那块的偏移（220）：小条会被放到鼠标左边 220，往左跳 164
+  // 用收着的小条算偏移，不用张开那块（220）：否则会放到鼠标左边 220，往左跳 164
   assert.equal(at.x - (point.x - 220), 164, '比旧账右了 164，不再往左跳')
 })
 
@@ -104,7 +104,7 @@ test('从细线开始拖也居中对着鼠标', () => {
 test('拖着文件碰到小岛就张开接文件；收成细线时也一样', () => {
   assert.equal(dropScene('strip'), 'tray')
   assert.equal(dropScene('line'), 'tray')
-  assert.equal(dropScene('expanded'), null)
+  assert.equal(dropScene('expanded'), 'tray', '正冒着一行字也能接')
   assert.equal(dropScene('tray'), null)
 })
 
@@ -130,28 +130,6 @@ test('id 变了但那块屏还在（bounds 对得上）就还照存的放', () =
   const back = restorePlace(saved, fakeScreen, 112)
   assert.equal(back.area.y, 200)
   assert.equal(back.x, 1920 + 300)
-})
-
-test('以前存过小球的一律当吸顶：贴在球那块屏的顶边，x 用球心减半个小岛', () => {
-  const ball = restorePlace({ x: 0, y: 0, scene: 'ball', ball: { x: 2200, y: 600 }, onTop: true }, fakeScreen, 112)
-  assert.equal(ball.area.y, 200)
-  assert.equal(ball.x, 2200 - 56)
-  // 球在左边那块屏：贴左边那块屏的顶边
-  const left = restorePlace({ scene: 'ball', ball: { x: 100, y: 300 } }, fakeScreen, 112)
-  assert.equal(left.area.y, 0)
-  assert.equal(left.x, 100 - 56)
-  // 球在屏外：夹进屏内
-  const edge = restorePlace({ scene: 'ball', ball: { x: 5000, y: 600 } }, fakeScreen, 112)
-  assert.equal(edge.x, 1920 + 1280 - 112)
-  // scene 不是 ball 但带球心（0.2 存过 ball 字段）：也一样迁
-  const stray = restorePlace({ scene: 'strip', ball: { x: 100, y: 300 } }, fakeScreen, 112)
-  assert.equal(stray.x, 100 - 56)
-})
-
-test('旧格式只存了绝对 x/y：那块屏还在就照旧的放，吸到那块屏的顶边', () => {
-  const back = restorePlace({ x: 2200, y: 200, scene: 'strip', ball: null }, fakeScreen, 112)
-  assert.equal(back.area.y, 200)
-  assert.equal(back.x, 2200)
 })
 
 test('没存过就放主屏顶边正中', () => {

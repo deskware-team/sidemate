@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
+<title data-t="uninstall.title"></title>
+<link rel="stylesheet" href="page.css">
+<div id="winbar"></div>
+<button id="win-close" type="button" data-t-title="frame.close"></button>
+<main>
+  <h1 data-t="uninstall.confirm"></h1>
+  <label class="check">
+    <input type="checkbox" id="wipe">
+    <span data-t="uninstall.wipe"></span>
+  </label>
+  <div id="actions">
+    <button id="cancel" type="button" class="secondary" data-t="uninstall.cancel"></button>
+    <button id="ok" type="button" class="danger" data-t="uninstall.ok"></button>
+  </div>
+</main>
+<script type="module" src="page.js"></script>

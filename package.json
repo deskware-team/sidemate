@@ -1,6 +1,6 @@
 {
   "name": "sidemate",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "main": "app/main/main.mjs",
@@ -14,5 +14,8 @@
   "devDependencies": {
     "electron": "45.2.1",
     "electron-builder": "26.18.0"
+  },
+  "dependencies": {
+    "koffi": "^3.1.1"
   }
 }

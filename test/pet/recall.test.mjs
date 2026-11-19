@@ -1,7 +1,7 @@
 // 托盘叫回小岛
-// 点托盘图标、点托盘菜单「显示桌伴」：小岛一定回到最前、看得见。
-// 三种叫不回来的情况：藏到托盘的、被别的窗盖住且没勾最前的、收成细线的。
-// 叫的时候不改存着的「保持在最前」，也不抢焦点。
+// 点托盘图标：小岛一定回到最前、看得见。
+// 两种叫不回来的情况：被别的窗盖住且没勾置顶的、收成细线的。
+// 叫的时候不改存着的「置顶」，也不抢焦点。
 
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -9,6 +9,7 @@ import test from 'node:test'
 import { RECALL_TOP_MS, createRecaller, recallScene } from '../../app/pet/recall.mjs'
 
 const petShell = readFileSync(new URL('../../app/pet/shell.mjs', import.meta.url), 'utf8')
+const petMenu = readFileSync(new URL('../../app/pet/menu.mjs', import.meta.url), 'utf8')
 
 // 假的窗：只记调了什么
 function fakeWindow() {
@@ -116,13 +117,12 @@ test('叫回小岛不抢焦点：只 showInactive + moveTop，不调 focus', () 
   assert.ok(!methods.includes('focus'), '叫回小岛抢了焦点')
 })
 
-test('托盘单击和托盘菜单「显示桌伴」走的是同一个叫回小岛的入口', () => {
-  // 托盘菜单「显示桌伴」
-  assert.match(petShell, /label: '显示桌伴', click: trayShow/)
-  // 托盘单击：以前是显示/隐藏来回切，现在跟「显示桌伴」一样只管叫回来
+test('托盘单击走叫回小岛的入口；托盘菜单里没有「显示桌伴」', () => {
+  assert.doesNotMatch(petMenu, /menu\.show|onShow/)
+  assert.doesNotMatch(petShell, /trayShow/)
+  // 托盘单击：只管叫回来
   assert.match(petShell, /tray\.on\('click', trayClick\)/)
-  assert.match(petShell, /function trayShow\(\) \{\s*const ok = recallIsland\('tray-menu'\)/)
   assert.match(petShell, /function trayClick\(\) \{\s*const ok = recallIsland\('tray-click'\)/)
-  // 不再是「显示/隐藏」来回切
+  // 不是「显示/隐藏」来回切
   assert.doesNotMatch(petShell, /pet\.isVisible\(\)\) pet\.hide\(\)/)
 })

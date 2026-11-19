@@ -1,4 +1,4 @@
-// 三条曲线（设计稿第三节）：出来 cubic-bezier(0.2,0.8,0.2,1)、收回 cubic-bezier(0.4,0,0.2,1)、
+// 三条曲线：出来 cubic-bezier(0.2,0.8,0.2,1)、收回 cubic-bezier(0.4,0,0.2,1)、
 // 弹一下 cubic-bezier(0.34,1.56,0.64,1)。这里是同一个 bezier 求解器。
 
 export function cubicBezier(x1, y1, x2, y2) {

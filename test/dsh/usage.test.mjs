@@ -17,7 +17,7 @@ function scratch(prefix) {
 }
 
 after(() => {
-  for (const dir of roots) rmSync(dir, { recursive: true, force: true })
+  for (const dir of roots) { try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) } catch { /* Windows 上进程刚收掉还占着文件：删不掉就留给系统清 */ } }
 })
 
 function ensureNode() {
@@ -139,7 +139,6 @@ function fakeOptions(plan, extra = {}) {
     payloadRoot: fakePayload(),
     node: process.execPath,
     prompt: `FAKE ${JSON.stringify(plan)}`,
-    stallMs: 30_000,
     ...extra,
   }
 }
@@ -272,7 +271,6 @@ describe('usage waits for the file to catch up', { concurrency: 1 }, () => {
         workspace,
         lowRoot,
         baseUrl: fake.url,
-        stallMs: 30_000,
         onEvent: event => events.push(event),
         onLog: line => logs.push(line),
       })

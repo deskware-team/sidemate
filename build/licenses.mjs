@@ -141,11 +141,37 @@ export function scanElectron(root = repoRoot) {
   return [{ name: 'Electron', version, license: 'MIT', kind: 'electron' }]
 }
 
-// 7-Zip 只在装的时候用（装完即删），不在 payload 里；版本从 electron-builder 缓存里的 7za 自己报。
-export function scanSevenZip() {
+// 桌伴自己带的运行时依赖（package.json 的 dependencies）：装进安装包、跟着桌伴跑的那几个
+// （眼下是 koffi：全屏检测直接问 Windows 窗口用的）。开发依赖不算，它们不进安装包。
+export function scanAppNpm(root = repoRoot) {
+  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const out = []
+  const seen = new Set()
+  const visit = (name) => {
+    if (!name || seen.has(name)) return
+    seen.add(name)
+    const manifest = join(root, 'node_modules', ...name.split('/'), 'package.json')
+    if (!existsSync(manifest)) return
+    let info = null
+    try {
+      info = JSON.parse(readFileSync(manifest, 'utf8'))
+    } catch {
+      return
+    }
+    if (!info.name || !info.version) return
+    out.push({ name: info.name, version: info.version, license: npmLicense(info), kind: 'npm' })
+    const next = [...Object.keys(info.dependencies || {}), ...Object.keys(info.optionalDependencies || {})]
+    for (const child of next) visit(child)
+  }
+  for (const name of Object.keys(pkg.dependencies || {})) visit(name)
+  return out
+}
+
+// 在 electron-builder 缓存里找 7za.exe：缓存目录名带版本和哈希，会变，所以不写死。
+export function findSevenZip() {
   const cache = process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'electron-builder', 'Cache') : ''
-  if (!cache || !existsSync(cache)) return []
-  let found = null
+  if (!cache || !existsSync(cache)) return ''
+  let found = ''
   for (const entry of readdirSync(cache, { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.startsWith('7zip@')) continue
     const bin = join(cache, entry.name)
@@ -159,6 +185,12 @@ export function scanSevenZip() {
     }
     if (found) break
   }
+  return found
+}
+
+// 7-Zip 只在装的时候用（装完即删），不在 payload 里；版本从 electron-builder 缓存里的 7za 自己报。
+export function scanSevenZip() {
+  const found = findSevenZip()
   if (!found) return []
   const run = spawnSync(found, [], { encoding: 'utf8', timeout: 30_000 })
   const version = `${run.stdout ?? ''}${run.stderr ?? ''}`.match(/7-Zip \(a\) (\d+\.\d+)/)?.[1]
@@ -166,30 +198,72 @@ export function scanSevenZip() {
   return [{ name: '7-Zip', version, license: 'LGPL-2.1-or-later', kind: 'sevenzip' }]
 }
 
-// 技能目录里带来的第三方许可文件：清单里要提这些文件名。
-export function scanSkillLicenses(root = repoRoot) {
-  const skills = join(root, 'app', 'skills')
-  const out = []
-  let entries = []
+// 一个许可文件是什么许可：看开头那几行，认得出就写认出的，写不出就 UNKNOWN。
+function licenseOf(file) {
+  let head = ''
   try {
-    entries = readdirSync(skills, { withFileTypes: true })
+    head = readFileSync(file, 'utf8').slice(0, 400)
   } catch {
-    return out
+    return 'UNKNOWN'
   }
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue
-    const dir = join(skills, entry.name, 'licenses')
-    if (!existsSync(dir)) continue
-    for (const file of readdirSync(dir, { withFileTypes: true })) {
-      if (!file.isFile()) continue
-      const head = readFileSync(join(dir, file.name), 'utf8').slice(0, 400)
-      let license = 'UNKNOWN'
-      if (/Apache License/i.test(head)) license = 'Apache-2.0'
-      else if (/MIT License/i.test(head)) license = 'MIT'
-      const rel = `app/skills/${entry.name}/licenses/${file.name}`
-      out.push({ name: rel, version: '-', license, kind: 'skill-license' })
+  if (/Apache License/i.test(head)) return 'Apache-2.0'
+  if (/MIT License/i.test(head)) return 'MIT'
+  return 'UNKNOWN'
+}
+
+// 技能目录里带来的第三方许可文件：清单里要提这些文件名。
+// 自带技能的惯例是 licenses/ 子目录；推荐技能照上游的摆法，LICENSE 放技能根下，两种都认。
+// 技能里随包带的第三方代码（推荐技能 vendor 目录里的 npm 包）也各有自己的 LICENSE，一并提。
+export function scanSkillLicenses(root = repoRoot) {
+  const out = []
+  const collect = (base, relBase) => {
+    let entries = []
+    try {
+      entries = readdirSync(base, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue
+      const licenses = join(base, entry.name, 'licenses')
+      if (existsSync(licenses)) {
+        for (const file of readdirSync(licenses, { withFileTypes: true })) {
+          if (!file.isFile()) continue
+          const head = readFileSync(join(licenses, file.name), 'utf8').slice(0, 400)
+          let license = 'UNKNOWN'
+          if (/Apache License/i.test(head)) license = 'Apache-2.0'
+          else if (/MIT License/i.test(head)) license = 'MIT'
+          out.push({ name: `${relBase}/${entry.name}/licenses/${file.name}`, version: '-', license, kind: 'skill-license' })
+        }
+      }
+      const rootLicense = join(base, entry.name, 'LICENSE')
+      if (existsSync(rootLicense)) {
+        out.push({ name: `${relBase}/${entry.name}/LICENSE`, version: '-', license: licenseOf(rootLicense), kind: 'skill-license' })
+      }
+      // 技能里 deeper 一层的 LICENSE（随包带的第三方包）：按相对路径逐个提。
+      const deep = (dir, rel) => {
+        let names = []
+        try {
+          names = readdirSync(dir, { withFileTypes: true })
+        } catch {
+          return
+        }
+        for (const item of names) {
+          if (!item.isDirectory()) continue
+          const full = join(dir, item.name)
+          const child = rel ? `${rel}/${item.name}` : item.name
+          const license = join(full, 'LICENSE')
+          if (existsSync(license)) {
+            out.push({ name: `${relBase}/${entry.name}/${child}/LICENSE`, version: '-', license: licenseOf(license), kind: 'skill-license' })
+          }
+          deep(full, child)
+        }
+      }
+      deep(join(base, entry.name), '')
     }
   }
+  collect(join(root, 'app', 'skills'), 'app/skills')
+  collect(join(root, 'app', 'skills-recommended'), 'app/skills-recommended')
   return out
 }
 
@@ -199,6 +273,7 @@ export function scanAll(payloadRoot, root = repoRoot) {
     ...scanPython(payloadRoot),
     ...scanNode(payloadRoot, root),
     ...scanElectron(root),
+    ...scanAppNpm(root),
     ...scanSevenZip(),
     ...scanSkillLicenses(root),
   ]

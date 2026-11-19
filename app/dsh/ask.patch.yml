@@ -1,0 +1,15 @@
+# 审批策略用 dsh 原生的 ask：越权的操作先来问一声，桌伴把申请转到任务窗，用户点了才回。
+# 没人应答时 dsh 自己按拒绝收场（fail closed）。
+- id: approval
+  config:
+    policy: ask
+# 预设插件要求沙箱和审批的组合有名字。默认仍是工作区可写：越权要问用户。
+- id: permission
+  config:
+    presets:
+      sidemate-workspace:
+        sandbox: workspace-write
+        approval: ask
+        name: 桌伴工作区
+        description: 只允许写工作区，越权要问用户。
+    defaultPreset: sidemate-workspace

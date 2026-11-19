@@ -19,7 +19,7 @@ function scratch(prefix) {
 
 after(() => {
   bindUsageStore(null)
-  for (const dir of roots) rmSync(dir, { recursive: true, force: true })
+  for (const dir of roots) { try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) } catch { /* Windows 上进程刚收掉还占着文件：删不掉就留给系统清 */ } }
 })
 
 const at = (year, month, day, hour = 12) => new Date(year, month - 1, day, hour).getTime()
@@ -67,7 +67,8 @@ test('按月合计只算当前月，跨月的不算', () => {
     row({ at: at(2026, 12, 1), inputTokens: 700000 }),
   ]
   const view = usageView(records, at(2026, 11, 15))
-  assert.equal(view.heading, '11 月一共用了')
+  // 标题说清楚这个数是什么：模型用量（输入加输出）
+  assert.equal(view.heading, '11 月模型用量合计（输入加输出）')
   assert.equal(view.total, '124.6 万') // 11 月两条：100 万 + 24.6 万
 })
 
@@ -86,8 +87,8 @@ test('视图对坏行和没名字的行不崩', () => {
   const view = usageView([null, { at: 'x' }, { at: NOV }, { at: NOV, name: '', inputTokens: 12345 }], at(2026, 11, 9))
   assert.equal(view.total, '1.2 万')
   assert.deepEqual(view.recent, [
-    { name: '一个任务', date: '11-08', usage: '0' },
-    { name: '一个任务', date: '11-08', usage: '1.2 万' },
+    { name: '未命名任务', date: '11-08', usage: '0' },
+    { name: '未命名任务', date: '11-08', usage: '1.2 万' },
   ])
 })
 
@@ -143,21 +144,15 @@ test('run.mjs 那一处调用：一轮结束真的写进 userData 下的 usage.j
   const home = scratch('sidemate-userdata-')
   bindUsageStore(home)
   const root = scratch('sidemate-run-')
-  const nodeSource = join(root, 'payload', 'node', 'node.exe')
-  const nodeLow = join(root, 'payload', 'node-low', 'node.exe')
-  mkdirSync(dirname(nodeSource), { recursive: true })
-  writeFileSync(nodeSource, 'node-binary-for-tests')
   const workspace = join(root, 'task-ws')
   const runner = createRunner({
     root: () => join(root, '桌伴'),
-    key: () => 'sk-test',
+    // 开工前要算得出模型：算不通这一轮直接失败，所以这里给一条算得通的
+    model: () => ({ ok: true, apiKey: 'test-key', env: {}, patchTexts: [], model: { value: 'deepseek/chat', effort: null }, vendor: '测试通道', free: false }),
     extensions: ['.docx', '.txt'],
     recent: [],
-    node: { source: nodeSource, low: nodeLow },
     log: () => {},
-    prepareTask: () => ({ kind: 'none', workspace, outputDir: join(workspace, '桌伴输出'), copied: [], skipped: [], originals: [], snapshot: [] }),
-    protectRuntime: () => ({ ok: true, message: '' }),
-    prepareFeed: undefined,
+    prepareTask: () => ({ kind: 'none', workspace, copied: [], skipped: [], originals: [], snapshot: [] }),
     finishTask: () => ({ ok: true, changed: [], snapshot: [], outputs: [] }),
     deliverOutput: (input) => ({ to: join(root, '产出', input.name), name: input.name, locked: false }),
     clearWorkspace: () => {},

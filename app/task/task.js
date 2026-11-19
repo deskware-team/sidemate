@@ -2,16 +2,33 @@
 // 顶上顶着文件夹，下面一条对话流：我说的话 · 模型说的每一段 · 产出卡。
 
 import { httpUrl, markdownBlocks } from './markdown.mjs'
-import { elapsedText } from './timing.mjs'
+import { quietLabel } from './timing.mjs'
+import { countdownText } from './wait.mjs'
 import { scrollDecision } from './scroll.mjs'
 import { animStep } from './anim.mjs'
+import { createInputAnim } from './input-anim.mjs'
+import { SHADOW_BOTTOM, SHADOW_TOP } from './window.mjs'
+import { createModelsMenu } from './models-view.js'
+import { createHistoryView } from './history-view.js'
+import { createTagRow } from './tagrow.mjs'
+import { createChipRow } from './chips-view.js'
+import { createPasteInput } from './paste-input.mjs'
+import { escapeAction } from './escape.mjs'
+import { installEl as installCardEl } from './install-card.mjs'
+import { permissionEl } from './permission-card.mjs'
+import { codeTail } from '../copy/line.mjs'
+import { paint, t } from '../copy/copy.mjs'
+
+// 页面里写死的字（html 上的 data-t）：窗口第一次显示前先换掉
+paint(document)
 
 const $ = (sel) => document.querySelector(sel)
 const els = {
-  top: $('#top'), box: $('#box'),
-  path: $('#path'), recent: $('#recent'), menu: $('#menu'), newtask: $('#newtask'),
-  flow: $('#flow'), latest: $('#latest'), tagrow: $('#tagrow'), tags: $('#tags'),
-  addfile: $('#addfile'), input: $('#input'), send: $('#send'),
+  top: $('#top'),
+  wherebtn: $('#where-btn'), wherename: $('#where-name'), openfolder: $('#openfolder'), newtask: $('#newtask'),
+  flow: $('#flow'), latest: $('#latest'), tagrow: $('#tagrow'), tags: $('#tags'), notes: $('#notes'), banner: $('#banner'),
+  addfile: $('#addfile'), inputwrap: $('#inputwrap'), input: $('#input'),
+  send: $('#send'), sendtext: $('#sendtext'), stop: $('#stop'), chiprow: $('#chiprow'), handlebar: $('#handlebar'),
   drop: $('#dropmask'), tagmenu: $('#tagmenu'), docicon: $('#docicon'),
 }
 const bridge = window.task || null
@@ -20,16 +37,104 @@ const stillMedia = matchMedia('(prefers-reduced-motion: reduce)')
 let view = null
 let lastJson = ''
 let stick = true
-let pendingNew = false // 用户往上翻着看的时候来了新内容
 let forceBottom = false // 刚发完消息，一定滚到底
 let lastBlocks = ''
-let lastHeight = 0
-let dropCell = 'materials'
+let inputOpen = false // 输入胶囊展开着没
+let dragOn = false // 正在拖底边把手
+let dragFrom = 0 // 按下那一下的面板高
+let dragY = 0 // 按下那一下的指针位置
+let outDrag = null // 正从产出卡往外拖：{ left } 离开过这个窗口没有；拖完了归 null
 
 const act = (action) => { if (bridge) bridge.act(action) }
+
+// 顶栏胶囊上写的字：壳给什么写什么（一直是「任务列表」，文件夹路径在停上去的提示里）
+const folderLabel = (info) => info.text
+
 const atBottom = () => els.flow.scrollHeight - els.flow.scrollTop - els.flow.clientHeight < 4
 
-// 垂下来和收回（设计稿第三节②）：页面第一帧是收起状态，壳说一声才垂下来。
+// 换模型：左下角小签，点开往上弹列表；选中交给主进程记在任务状态里，只管当前这个任务
+let modelsData = null // { list, current }，主进程 task:models 给的
+
+function refreshModels() {
+  if (!bridge || typeof bridge.models !== 'function') return Promise.resolve()
+  return bridge.models()
+    .then((next) => {
+      modelsData = next
+      modelsMenu.render(modelsData, view ? view.phase : '')
+    })
+    .catch(() => {})
+}
+
+// dsh 那边模型选项变了（热加载）：主进程推来一份新的，下拉跟着换
+if (bridge && typeof bridge.onModels === 'function') {
+  bridge.onModels((next) => {
+    if (!next) return
+    modelsData = next
+    modelsMenu.render(modelsData, view ? view.phase : '')
+  })
+}
+
+// 点模型行选模型（档位用它自己的默认）；点档位行连档位一起。
+// Kilo 模型没同意过使用须知的：先看使用须知，同意了才选，不同意什么都不改。
+function pickModel(item, effort) {
+  modelsMenu.closeMenu()
+  if (item.needsConsent) {
+    void (async () => {
+      let agreed = false
+      try { agreed = await bridge.consent() } catch { agreed = false }
+      if (agreed !== true) return
+      act({ type: 'model', entry: item.entry, model: item.model, effort: null })
+      void refreshModels()
+    })()
+    return
+  }
+  act({ type: 'model', entry: item.entry, model: item.model, effort: effort ?? null })
+  void refreshModels()
+}
+
+const modelsMenu = createModelsMenu({
+  chipRow: els.chiprow,
+  layer: document.body,
+  onPick: (item, effort) => pickModel(item, effort),
+  onManage: () => act({ type: 'settings' }),
+})
+
+// 历史：顶栏「▾」弹出的「历史记录」下拉 + 「看全部…」换出的整页。
+// 列表和打开都走主进程；没有桥（预览壳）就拿不到列表，界面照样开、不报错。
+const historyView = createHistoryView({
+  where: $('#where'),
+  panel,
+  list: (payload) => (bridge && typeof bridge.historyList === 'function'
+    ? bridge.historyList(payload).catch(() => null)
+    : Promise.resolve(null)),
+  open: (id) => (bridge && typeof bridge.historyOpen === 'function'
+    ? bridge.historyOpen(id).catch(() => null)
+    : Promise.resolve(null)),
+})
+
+// 小签行：文件、贴的图、贴的长文字都变成小签（画法和菜单在 ./tagrow.mjs）。
+// 「改回文字」取回的字放进输入框：已有字就另起一行，展开胶囊接着打。
+const tagRow = createTagRow({
+  row: els.tagrow,
+  list: els.tags,
+  menu: els.tagmenu,
+  act,
+  bridge,
+  view: () => view,
+  onRestore: (text) => {
+    els.input.value = els.input.value ? `${els.input.value}\n${text}` : text
+    setInputOpen(true, true)
+  },
+})
+
+// 输入框里贴东西的分流（图 / 长字 / 短字 / 文件）在 ./paste-input.mjs
+if (bridge) createPasteInput({ input: els.input, bridge })
+
+// 气泡里的小块：发出去的文件在工作区里的那份拷贝。图片带缩略图，其它带图标 + 文件名；
+// 放不下收成「+N」。点一下让主进程用系统默认程序打开那份拷贝（画法在 ./chips-view.js）
+const chipRow = createChipRow({ doc: document, bridge, icon: els.docicon })
+
+// 垂下来和收回：页面第一帧是收起状态，壳说一声才垂下来。
 // 帘子往下拉开：露出的高度从 1 到整窗，同时从上方 16px 落到位，前 120ms 淡入。
 // 收回：帘子往上收，窗往上走 12px，最后 120ms 淡出。
 // 中途改了方向：倒着走，从当前位置接着走，不重放也不叠两段。
@@ -90,16 +195,18 @@ panel.addEventListener('animationend', (event) => {
   settle(animDir)
 })
 
-// 对话流有多高：量内容，不量被挤剩下的那点。
-// 量的时候临时把高度放开，滚动位置会被压回 0；量完放回去，别让对话流跳顶。
-function flowHeight() {
-  const prev = els.flow.style.height
-  const top = els.flow.scrollTop
-  els.flow.style.height = 'auto'
-  const height = els.flow.offsetHeight
-  els.flow.style.height = prev
-  els.flow.scrollTop = top
-  return height
+// 输入胶囊：不用时收成一行的胶囊，点一下或开始打字展开成三行；失焦且没内容时收回。
+// 展开 / 收起的过渡在 input-anim.mjs：先量高再切类，height 从旧值走到新值，发送钮贴着框角不动
+const inputAnim = createInputAnim({ wrap: els.inputwrap, input: els.input, reduce: () => stillMedia.matches })
+function setInputOpen(open, focus) {
+  const want = open === true
+  if (inputOpen === want) {
+    if (want && focus) els.input.focus()
+    return
+  }
+  inputOpen = want
+  inputAnim.to(want)
+  if (want && focus) els.input.focus()
 }
 
 // 链接：点了交主进程用系统浏览器开，页面不自己跳；裸网址太长中间省一点，地址仍是原网址
@@ -153,6 +260,8 @@ function markdownEl(text) {
       wrap.append(h)
     } else if (block.type === 'p') {
       const p = document.createElement('p')
+      // 「来源：…」的段落：小号灰字，里面的链接照旧可点
+      if (block.src) p.className = 'src'
       segs(p, block.segs)
       wrap.append(p)
     } else if (block.type === 'ul' || block.type === 'ol') {
@@ -210,38 +319,107 @@ function buttonEl(label, action, kind) {
   return btn
 }
 
-// 我说的：靠右，底下一行小字写带了哪些文件
+// 横幅、对话流里的按钮：「换模型」不是发给主进程的，是把模型菜单打开
+function buttonFor(one) {
+  if (one.action === 'models') {
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.textContent = one.label
+    btn.addEventListener('click', () => modelsMenu.openMenu())
+    return btn
+  }
+  const btn = buttonEl(one.label, { type: one.action })
+  if (one.action === 'continue') btn.classList.add('primary')
+  return btn
+}
+
+// 等待行：模型那边忙，等一会儿自己再试。一段照常折行的字（秒数自己倒数），右边一个「停下」。
+// 没有倒数的那种（超时那句本身就是「正在重新连接」，until 是 0）只摆整句，不再接倒数那截。
+function waitEl(block) {
+  const el = document.createElement('div')
+  el.className = 'wait'
+  const until = Number(block.until) || 0
+  const text = document.createElement('span')
+  text.className = 'wtext'
+  const head = typeof block.head === 'string' ? block.head : ''
+  const tail = typeof block.tail === 'string' ? block.tail : ''
+  // 拆不出三段又没有倒数：整句照摆
+  const whole = !head && !tail && until <= 0
+  text.append(document.createTextNode(whole ? String(block.text || '') : head))
+  if (until > 0) {
+    const secs = document.createElement('span')
+    secs.className = 'wsecs'
+    secs.dataset.until = String(until)
+    secs.textContent = countdownText(until)
+    text.append(secs)
+  }
+  text.append(document.createTextNode(tail))
+  el.append(text)
+  if (block.buttons && block.buttons.length) {
+    const btns = document.createElement('div')
+    btns.className = 'btns'
+    for (const one of block.buttons) btns.append(buttonFor(one))
+    el.append(btns)
+  }
+  return el
+}
+
+// 我说的：右边纸色气泡，带了的文件在气泡里摆成小块（图片带缩略图，点一下能打开）
 function userEl(block) {
   const el = document.createElement('div')
   el.className = 'user'
   const tx = document.createElement('div')
   tx.className = 'tx'
   tx.textContent = block.text
+  const chips = chipRow.render(block)
+  if (chips) tx.append(chips)
   el.append(tx)
-  if (block.files && block.files.length) {
-    const files = document.createElement('div')
-    files.className = 'files'
-    files.textContent = `带了 ${block.files.join('、')}`
-    el.append(files)
-  }
   return el
 }
 
-// 干活中：对话流最下面一行浅字「正在工作 · 14 秒」，秒数自己走
+// 干活中插进去的那句话：右边纸色气泡（跟「我说的」一样，干活中挂上的文件也摆成小块），
+// 下面一行 11px 灰字写走的哪条路
+function steerEl(block) {
+  const el = document.createElement('div')
+  el.className = 'steer'
+  const bubble = document.createElement('div')
+  bubble.className = 'user'
+  const tx = document.createElement('div')
+  tx.className = 'tx'
+  tx.textContent = block.text
+  const chips = chipRow.render(block)
+  if (chips) tx.append(chips)
+  bubble.append(tx)
+  el.append(bubble)
+  const note = document.createElement('div')
+  note.className = 'snote'
+  note.textContent = steerNote(block.status)
+  el.append(note)
+  return el
+}
+
+// 走通了就一行灰字：插进这一步了、排队等这轮干完，说的是同一句
+function steerNote(status) {
+  return view && status ? view.labels.steer : ''
+}
+
+// 干活中：对话流最下面一行浅字，只说在干什么，不带计时。
+// 静了好一会儿：状态在「还需要更长时间」「等待模型响应」之间每 30 秒换一次，自己换
 function workingEl(block) {
   const el = document.createElement('div')
   el.className = 'working'
-  const since = Number(block.since) || Date.now()
-  el.append(document.createTextNode(`${block.text} · `))
-  const secs = document.createElement('span')
-  secs.className = 'secs'
-  secs.dataset.since = String(block.since || 0)
-  secs.textContent = elapsedText(Date.now() - since)
-  el.append(secs)
+  const label = document.createElement('span')
+  label.textContent = block.text
+  if (block.quiet) {
+    label.className = 'quiet'
+    label.dataset.at = String(block.quiet)
+    label.textContent = quietLabel(block.quiet)
+  }
+  el.append(label)
   return el
 }
 
-// 产出卡：文档图标 · 文件名 · 一行说明 · 打开 / 在文件夹里显示
+// 产出卡：文档图标 · 文件名 · 一行说明 · 另存为 / 打开文件夹（这张卡能拖出去）
 function cardEl(block) {
   const card = block.card
   const el = document.createElement('article')
@@ -254,35 +432,38 @@ function cardEl(block) {
   const nm = document.createElement('span')
   nm.className = 'nm'
   nm.textContent = card.label
-  nm.title = card.name
   head.append(icon, nm)
   const sub = document.createElement('div')
   sub.className = 'sub'
   sub.textContent = card.line
+  sub.title = card.name
   const btns = document.createElement('div')
   btns.className = 'btns'
-  btns.append(buttonEl(view.labels.open, { type: 'open', path: card.path }, 'open'))
+  btns.append(buttonEl(view.labels.saveAs, { type: 'save-as', path: card.path }, 'save-as'))
   btns.append(buttonEl(view.labels.reveal, { type: 'reveal', path: card.path }, 'reveal'))
   el.append(head, sub, btns)
+  // 按住这张卡拖，文件跟着鼠标走（主进程起系统拖拽）；按下那一下先让主进程问好这种文件的图标
+  el.draggable = true
+  el.addEventListener('pointerdown', () => {
+    if (bridge && typeof bridge.dragPrep === 'function') bridge.dragPrep(card.path)
+  })
+  el.addEventListener('dragstart', (event) => {
+    event.preventDefault()
+    // 刚从自己这儿拖出去：没离开过这个窗口之前，窗口不接这份（免得一拖就落回聊天里）
+    outDrag = { left: false }
+    if (bridge && typeof bridge.dragOut === 'function') bridge.dragOut(card.path)
+  })
   return el
 }
 
 function blockEl(block) {
   if (block.kind === 'user') return userEl(block)
+  if (block.kind === 'steer') return steerEl(block)
   if (block.kind === 'working') return workingEl(block)
+  if (block.kind === 'wait') return waitEl(block)
   if (block.kind === 'card') return cardEl(block)
-  if (block.kind === 'error') {
-    const el = document.createElement('div')
-    el.className = 'error'
-    el.append(document.createTextNode(block.text))
-    if (block.buttons && block.buttons.length) {
-      const btns = document.createElement('div')
-      btns.className = 'btns'
-      for (const one of block.buttons) btns.append(buttonEl(one.label, { type: one.action }))
-      el.append(btns)
-    }
-    return el
-  }
+  if (block.kind === 'install') return installCardEl(block, view.labels, act)
+  if (block.kind === 'permission') return permissionEl(block, view.labels, act)
   const el = document.createElement('div')
   el.className = block.kind === 'reply' ? 'reply' : 'note'
   if (block.kind === 'reply') {
@@ -299,14 +480,15 @@ function blockEl(block) {
   if (block.buttons && block.buttons.length) {
     const btns = document.createElement('div')
     btns.className = 'btns'
-    for (const one of block.buttons) btns.append(buttonEl(one.label, { type: one.action }))
+    for (const one of block.buttons) btns.append(buttonFor(one))
     el.append(btns)
   }
   return el
 }
 
 // 重画对话流：滚到哪，看离底多远。
-// 用户自己在往上翻着看（离底超过 80px）就别硬拽，右下角露一个「↓ 有新消息」。
+// 用户自己在往上翻着看（离底超过 80px）就别硬拽，右下角露一个「回到最新」。
+// 它说的话（回答、说明、产出卡、干活中那行）前面带一个小岛头像，连续几段共用一个。
 function renderFlow() {
   const el = els.flow
   const distance = el.scrollHeight - el.scrollTop - el.clientHeight
@@ -314,145 +496,98 @@ function renderFlow() {
   const back = el.scrollTop
   const sig = JSON.stringify(view.blocks)
   el.textContent = ''
-  if (!view.blocks.length && view.flowHint) {
-    const hint = document.createElement('div')
-    hint.className = 'fh'
-    hint.textContent = view.flowHint
-    el.append(hint)
+  let group = null
+  for (const block of view.blocks) {
+    if (block.kind === 'user' || block.kind === 'steer') {
+      group = null
+      el.append(blockEl(block))
+      continue
+    }
+    if (!group) {
+      group = document.createElement('div')
+      group.className = 'them'
+      const ava = document.createElement('span')
+      ava.className = 'ava'
+      const body = document.createElement('div')
+      body.className = 'tbody'
+      group.append(ava, body)
+      el.append(group)
+    }
+    group.lastChild.append(blockEl(block))
   }
-  for (const block of view.blocks) el.append(blockEl(block))
   if (decision === 'bottom') {
     el.scrollTop = el.scrollHeight
     stick = true
-    pendingNew = false
   } else {
     el.scrollTop = back
     stick = false
-    if (sig !== lastBlocks) pendingNew = true
   }
   lastBlocks = sig
   forceBottom = false
   updateLatest()
 }
 
-// 右下角那个小按钮：没新东西就写「回到最新」，有新东西就写「↓ 有新消息」
+// 右下角那个小按钮「回到最新」：往上翻着看的时候露出来
 function updateLatest() {
   if (!view) return
   els.latest.hidden = stick
-  els.latest.textContent = pendingNew ? view.labels.newMsg : view.labels.latest
+  els.latest.textContent = view.labels.latest
 }
 
-// 小签：文件变成输入区上沿的小签，范本带黑底小标，签多了收成 +n
-function tagEl(tag) {
-  const el = document.createElement('button')
-  el.type = 'button'
-  el.className = `tag ${tag.role}`
-  el.dataset.path = tag.path
-  if (tag.role === 'template') {
-    const mark = document.createElement('span')
-    mark.className = 'mark'
-    mark.textContent = view.labels.markTemplate
-    el.append(mark)
+// 输入框上方那一条：报错是红色横幅（停工那句 · Si 码 错误，下面一排按钮）；
+// 提示是灰色一行，右边一个 ×（点了收起，发下一句也收起）
+function renderBanner() {
+  const one = view.banner
+  els.banner.textContent = ''
+  els.banner.hidden = !one
+  els.banner.className = one ? one.level : ''
+  if (!one) return
+  const text = document.createElement('div')
+  text.className = 'btext'
+  text.textContent = one.text
+  // 后面一截灰色小字：「· Si429 错误，原文」，查日志时对得上
+  if (one.code) {
+    const tag = document.createElement('span')
+    tag.className = 'code'
+    tag.textContent = codeTail(one.code, one.raw)
+    text.append(tag)
   }
-  const nm = document.createElement('span')
-  nm.className = 'nm'
-  nm.textContent = tag.label
-  nm.title = tag.name
-  el.append(nm)
-  el.addEventListener('click', (event) => {
-    event.stopPropagation()
-    // 干活中锁住：这一轮的文件不动
-    if (view.input.mode === 'working') return
-    openTagMenu(el, tag)
-  })
-  return el
+  els.banner.append(text)
+  if (one.buttons.length) {
+    const btns = document.createElement('div')
+    btns.className = 'btns'
+    for (const b of one.buttons) btns.append(buttonFor(b))
+    els.banner.append(btns)
+  }
+  if (one.level === 'notice') {
+    const close = document.createElement('button')
+    close.type = 'button'
+    close.className = 'x'
+    close.textContent = '×'
+    close.title = view.labels.dismiss
+    close.addEventListener('click', () => act({ type: 'dismiss' }))
+    els.banner.append(close)
+  }
 }
 
-function openTagMenu(anchor, tag) {
-  els.tagmenu.textContent = ''
-  const items = [
-    { label: view.labels.tagTemplate, action: { type: 'move', path: tag.path, to: 'template' }, off: tag.role === 'template' },
-    { label: view.labels.tagMaterial, action: { type: 'move', path: tag.path, to: 'materials' }, off: tag.role === 'material' },
-    { label: view.labels.tagRemove, action: { type: 'remove', path: tag.path } },
-  ]
-  for (const one of items) {
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.textContent = one.label
-    btn.disabled = !!one.off
-    btn.addEventListener('click', () => { els.tagmenu.hidden = true; act(one.action) })
-    els.tagmenu.append(btn)
-  }
-  els.tagmenu.hidden = false
-  const box = anchor.getBoundingClientRect()
-  els.tagmenu.style.left = `${Math.max(4, Math.min(box.left, innerWidth - 130))}px`
-  els.tagmenu.style.top = `${box.bottom + 4}px`
-}
+// 小签：文件变成输入区上沿的小签，签多了收成 +n；画法在 ./tagrow.mjs
 
 function renderTags() {
-  const tags = view.tags || []
-  els.tagrow.hidden = tags.length === 0
-  els.tags.textContent = ''
-  const max = 3
-  for (const tag of tags.slice(0, max)) els.tags.append(tagEl(tag))
-  if (tags.length > max) {
-    const more = document.createElement('span')
-    more.className = 'more'
-    more.textContent = `+${tags.length - max}`
-    els.tags.append(more)
-  }
+  tagRow.render()
 }
 
-function renderMenu() {
-  els.menu.textContent = ''
-  const group = (label, items, action) => {
-    if (!items.length) return
-    const box = document.createElement('div')
-    box.className = 'menu-group'
-    const head = document.createElement('div')
-    head.className = 'menu-label'
-    head.textContent = label
-    box.append(head)
-    for (const item of items) {
-      const btn = document.createElement('button')
-      btn.type = 'button'
-      btn.dataset.dir = item.dir
-      btn.dataset.act = action
-      btn.textContent = item.name
-      btn.title = item.dir
-      box.append(btn)
-    }
-    els.menu.append(box)
-  }
-  group('最近的文件夹', view.top.recent.items, 'recent')
-  group('最近的任务', view.top.recent.tasks, 'open-recent')
-  if (view.top.recent.allTasks) {
-    const btn = document.createElement('button')
-    btn.type = 'button'
-    btn.className = 'menu-all'
-    btn.dataset.dir = view.top.recent.allTasks
-    btn.dataset.act = 'all-tasks'
-    btn.textContent = '全部任务…'
-    btn.title = view.top.recent.allTasks
-    els.menu.append(btn)
-  }
-}
+// 窗高定一条：拖底边把手改（算法在主进程的 height.mjs），这里只量指针。
+// 面板高 = 窗高减上下给阴影留的余量
+const panelHeight = () => innerHeight - SHADOW_TOP - SHADOW_BOTTOM
 
-// 窗高跟着内容长，最高 640，超了中间那段滚
-function reportSize() {
-  if (!bridge || !view) return
-  const height = els.top.offsetHeight + els.tagrow.offsetHeight + els.box.offsetHeight + flowHeight()
-  if (Math.abs(height - lastHeight) < 2) return
-  lastHeight = height
-  bridge.size(height)
-}
-
-// 「正在工作」那行上的秒数：自己走
+// 静下来以后那两句的轮换、等待行的倒数：自己走
 function tick() {
   const now = Date.now()
-  for (const one of document.querySelectorAll('.secs')) {
-    const since = Number(one.dataset.since) || now
-    one.textContent = elapsedText(now - since)
+  for (const one of document.querySelectorAll('.working .quiet')) one.textContent = quietLabel(one.dataset.at, now)
+  // 等待行上的秒数：数到 0 就说「重新连接中」，不留「0 秒后自动重试」
+  for (const one of document.querySelectorAll('.wsecs')) {
+    const until = Number(one.dataset.until) || 0
+    one.textContent = countdownText(until, now)
   }
 }
 
@@ -465,30 +600,54 @@ function render(next) {
   const wasFocus = view ? view.input.focus : false
   view = next
   document.title = view.title
-  els.path.textContent = view.top.path.text
-  els.path.title = view.top.path.title
-  els.path.disabled = !view.top.path.open
-  els.recent.disabled = !(view.top.recent.enabled && (view.top.recent.items.length || view.top.recent.tasks.length || view.top.recent.allTasks))
-  if (els.recent.disabled) els.menu.hidden = true
+  els.wherename.textContent = folderLabel(view.top.path)
+  // 名字长了胶囊里是省略号：停上去看全名
+  els.wherebtn.title = els.wherename.textContent
+  // 「在资源管理器里打开」的小图标：还没有文件夹就不露出来
+  const folder = view.top.path.open
+  els.openfolder.hidden = !folder
+  if (folder) els.openfolder.title = t('top.openFolder')
+  // 干活中也能点：这一条留在后台接着跑，另开一条新的
   els.newtask.textContent = view.top.newTask
-  els.newtask.disabled = view.top.locked && view.phase === 'working'
-  renderMenu()
+  // 历史下拉跟着视图走：当前那条换了重描一遍
+  historyView.setView({ currentId: view.top.historyId })
   renderTags()
+  // 输入框上方那句提醒：图、扫描件现在的模型看不了（只提醒，带一个「去配」）
+  els.notes.textContent = ''
+  if (view.remind) {
+    const line = document.createElement('div')
+    line.className = 'remind'
+    // 「去配」开设置·模型；「去选」打开换模型的菜单（跟横幅上「换模型」同一个口子）
+    line.append(document.createTextNode(view.remind.text), buttonFor({ action: view.remind.action, label: view.remind.label }))
+    els.notes.append(line)
+  }
+  els.notes.hidden = !view.remind
+  renderBanner()
   els.input.placeholder = view.input.hint
-  els.send.textContent = view.input.button === 'stop' ? view.labels.stop : view.labels.send
+  // 干活中：发送钮一直是发，停下另有一个钮；停在这儿（模型一直忙）时发送钮变成「接着干」
+  els.sendtext.textContent = view.input.button === 'stop' ? view.labels.stop : view.input.button === 'continue' ? view.labels.continue : view.labels.send
   els.send.classList.toggle('stop', view.input.button === 'stop')
-  if (view.input.focus && (!wasFocus || first)) els.input.focus()
+  // 现在的模型看不了图、这几份还没发出去：发送钮灰着（回车也发不出去，trySend 认 input.canSend）
+  els.send.disabled = view.input.canSend === false && view.input.button === 'send'
+  els.stop.hidden = view.phase !== 'working'
+  els.stop.textContent = view.labels.stop
+  // 要回话的、带了文件的画面自动展开；没内容也不在打字的收回去
+  if (view.input.focus && (!wasFocus || first)) setInputOpen(true, true)
+  else if (!els.input.value.trim() && document.activeElement !== els.input && !modelsMenu.isOpen()) setInputOpen(false)
   renderFlow()
-  requestAnimationFrame(reportSize)
+  // 换模型的小签跟着视图走：干活中变灰、不能点
+  modelsMenu.render(modelsData, view.phase)
 }
 
 function trySend() {
   if (!view || !view.input.canSend) return
   const text = els.input.value
   if (!text.trim()) return
+  // 干活中发出去的是插进去的那一句，不干活时是新的一轮
   forceBottom = true // 发完滚到底，别跳顶
-  act({ type: 'send', text })
+  act({ type: view.phase === 'working' ? 'steer' : 'send', text })
   els.input.value = ''
+  setInputOpen(false) // 发完收回胶囊
 }
 
 function hideDrop() {
@@ -497,23 +656,60 @@ function hideDrop() {
 }
 
 function bind() {
-  els.path.addEventListener('click', () => {
+  // 胶囊整块一个按钮：点哪都是开关「历史记录」下拉
+  els.wherebtn.addEventListener('click', () => historyView.toggle())
+  // 「在资源管理器里打开」的小图标
+  els.openfolder.addEventListener('click', () => {
     if (view && view.top.path.open) act({ type: 'open-folder', path: view.top.path.open })
   })
-  els.recent.addEventListener('click', () => { els.menu.hidden = !els.menu.hidden })
-  els.menu.addEventListener('click', (event) => {
-    const btn = event.target.closest('button[data-dir]')
-    if (!btn) return
-    els.menu.hidden = true
-    act({ type: btn.dataset.act, dir: btn.dataset.dir })
+  // 小签：点开把列表重新拿一遍再弹（密钥、同意状态可能刚变过），再点一下或点外面就收
+  modelsMenu.chip.addEventListener('click', (event) => {
+    event.stopPropagation()
+    if (modelsMenu.chip.disabled) return
+    if (modelsMenu.isOpen()) { modelsMenu.closeMenu(); return }
+    void refreshModels()
+    modelsMenu.openMenu()
   })
-  els.newtask.addEventListener('click', () => act({ type: 'new' }))
-  els.addfile.addEventListener('click', () => act({ type: 'add', cell: 'materials' }))
+  els.newtask.addEventListener('click', () => {
+    act({ type: 'new' })
+    // 新任务回到清单默认选的模型，把当前那一口重新拿一遍
+    void refreshModels()
+  })
+  els.addfile.addEventListener('click', () => act({ type: 'add' }))
+  // 输入胶囊：点一下展开；开始打字也展开；失焦且没内容时收回
+  els.inputwrap.addEventListener('pointerdown', () => {
+    if (!inputOpen) setInputOpen(true, true)
+  })
+  els.input.addEventListener('input', () => {
+    if (!inputOpen && els.input.value) setInputOpen(true, false)
+  })
+  els.input.addEventListener('blur', () => {
+    if (inputOpen && !els.input.value.trim() && !modelsMenu.isOpen()) setInputOpen(false)
+  })
   addEventListener('pointerdown', (event) => {
-    if (!els.menu.hidden && !els.menu.contains(event.target) && !els.recent.contains(event.target)) els.menu.hidden = true
+    // 点胶囊自己不算「点外面」：下拉的开关交给胶囊的点击处理
+    if (!els.wherebtn.contains(event.target)) historyView.outside(event.target)
     if (!els.tagmenu.hidden && !els.tagmenu.contains(event.target)) els.tagmenu.hidden = true
+    // 「思考」二级菜单是挂在外面的另一层：点它不算点外面，不然按下去菜单就收了、档位点不上
+    const inMenu = modelsMenu.popup.contains(event.target) || modelsMenu.sub.contains(event.target) || modelsMenu.chip.contains(event.target)
+    if (modelsMenu.isOpen() && !inMenu) modelsMenu.closeMenu()
   }, true)
-  addEventListener('keydown', (event) => { if (event.key === 'Escape') { els.menu.hidden = true; els.tagmenu.hidden = true } })
+  addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return
+    // 弹层、下拉、菜单开着先关它们；都没开就把任务窗收起来（输入框里有字也收，字留着）
+    const what = escapeAction({
+      history: historyView.isOpen() || historyView.isPageOpen(),
+      tag: !els.tagmenu.hidden,
+      models: modelsMenu.isOpen(),
+      inputOpen,
+      inputEmpty: !els.input.value.trim(),
+    })
+    if (what === 'history') { historyView.onEscape(); return }
+    if (what === 'tag') { els.tagmenu.hidden = true; return }
+    if (what === 'models') { modelsMenu.closeMenu(); return }
+    if (what === 'input') { setInputOpen(false); return }
+    if (bridge && typeof bridge.hide === 'function') bridge.hide()
+  })
   els.input.addEventListener('keydown', (event) => {
     if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return
     event.preventDefault()
@@ -521,42 +717,72 @@ function bind() {
   })
   els.send.addEventListener('click', () => {
     if (!view) return
-    if (view.input.button === 'stop') { act({ type: 'stop' }); return }
+    if (view.input.button === 'continue') { act({ type: 'continue' }); return }
     trySend()
+  })
+  els.stop.addEventListener('click', () => {
+    if (!view) return
+    act({ type: 'stop' })
   })
   els.flow.addEventListener('scroll', () => {
     stick = atBottom()
-    if (stick) pendingNew = false
     updateLatest()
   })
   els.latest.addEventListener('click', () => {
     stick = true
-    pendingNew = false
     els.flow.scrollTop = els.flow.scrollHeight
     updateLatest()
   })
-  // 拖着文件进窗：整窗分两块，压在哪块哪块变实线
+  // 底边把手：拖着改窗高，算法在主进程；抬手那一下记下来
+  els.handlebar.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return
+    dragOn = true
+    dragFrom = panelHeight()
+    dragY = event.clientY
+    try { els.handlebar.setPointerCapture(event.pointerId) } catch { /* 没抓住也能拖 */ }
+    event.preventDefault()
+  })
+  els.handlebar.addEventListener('pointermove', (event) => {
+    if (!dragOn || !bridge) return
+    bridge.height({ from: dragFrom, startY: dragY, nowY: event.clientY })
+  })
+  const endDrag = (event, commit) => {
+    if (!dragOn) return
+    dragOn = false
+    if (bridge) bridge.height({ from: dragFrom, startY: dragY, nowY: event.clientY, commit })
+  }
+  els.handlebar.addEventListener('pointerup', (event) => endDrag(event, true))
+  els.handlebar.addEventListener('pointercancel', (event) => endDrag(event, false))
+  // 拖着文件进窗：整窗一块，压上去变实线（干活中拖进来的也收：挂在输入框上，跟下一句一起发）。
+  // 从自己的产出卡拖出去的：还没离开过这个窗口就不接（不显示那一层、松手也不落）；出去再回来才接
+  const inOwnWindow = () => Boolean(outDrag && !outDrag.left)
   addEventListener('dragover', (event) => {
-    if (!event.dataTransfer.types.includes('Files')) return
+    if (!event.dataTransfer.types.includes('Files') || inOwnWindow()) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
     els.drop.hidden = false
   })
-  addEventListener('dragleave', (event) => { if (!event.relatedTarget) hideDrop() })
-  addEventListener('drop', hideDrop)
+  addEventListener('dragleave', (event) => {
+    if (event.relatedTarget) return
+    if (outDrag) outDrag.left = true
+    hideDrop()
+  })
+  addEventListener('drop', () => {
+    outDrag = null
+    hideDrop()
+  })
+  if (bridge && typeof bridge.onDragEnd === 'function') bridge.onDragEnd(() => { outDrag = null; hideDrop() })
   els.drop.addEventListener('dragover', (event) => {
-    if (!event.dataTransfer.types.includes('Files')) return
+    if (!event.dataTransfer.types.includes('Files') || inOwnWindow()) return
     event.preventDefault()
     const zone = event.target.closest('.zone')
-    dropCell = zone ? zone.dataset.cell : 'materials'
     for (const one of els.drop.querySelectorAll('.zone')) one.classList.toggle('on', one === zone)
   })
   els.drop.addEventListener('drop', (event) => {
     if (!event.dataTransfer.types.includes('Files')) return
     event.preventDefault()
-    const cell = dropCell
     hideDrop()
-    if (bridge) bridge.drop([...event.dataTransfer.files], cell)
+    if (bridge) bridge.drop([...event.dataTransfer.files])
   })
 }
 
@@ -568,4 +794,5 @@ if (bridge) {
   bridge.onView((next) => render(next))
   bridge.onAnim((kind) => playAnim(kind))
   bridge.ready().then((first) => { if (first) render(first) }).catch(() => {})
+  void refreshModels()
 }

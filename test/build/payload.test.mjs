@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { deflateRawSync } from 'node:zlib'
-import { PYPDF_WHEEL, bundledPackages, hostTarget, officePackages, selectWheels, unzip, wheelKey } from '../../build/payload.mjs'
+import { NODE_SHA256, NODE_VERSION, PYPDF_WHEEL, bundledPackages, hostTarget, listedNodeSha, officePackages, selectWheels, unzip, wheelKey } from '../../build/payload.mjs'
 
 test('wheel names match the eight office packages', () => {
   assert.equal(wheelKey('https://files.pythonhosted.org/packages/aa/python_docx-1.2.0-py3-none-any.whl'), 'python-docx')
@@ -40,6 +40,28 @@ test('pypdf 6.1.1 is pinned beside the office wheels', () => {
   }
   assert.equal(bundledPackages(lock).pypdf, '6.1.1')
   assert.equal(officePackages(lock).pypdf, undefined)
+})
+
+// 24.13.0 的 fs.rmSync 碰上中文路径删不掉、有的直接崩；24.13.1 起修了
+test('node is pinned with its win-x64 zip sha256 and SHASUMS256.txt has to agree', () => {
+  assert.equal(NODE_VERSION, '24.22.3')
+  assert.match(NODE_SHA256, /^[0-9a-f]{64}$/)
+  const name = `node-v${NODE_VERSION}-win-x64.zip`
+  const sums = `${'1'.repeat(64)}  node-v${NODE_VERSION}-linux-x64.tar.xz\n${NODE_SHA256}  ${name}\n`
+  assert.equal(listedNodeSha(sums, name), NODE_SHA256)
+  assert.throws(() => listedNodeSha(sums.replace(NODE_SHA256, '0'.repeat(64)), name), /pinned/)
+  assert.throws(() => listedNodeSha('', name), /has no/)
+})
+
+test('CI runs the tests on the same node as the payload', (t) => {
+  const path = join(import.meta.dirname, '..', '..', '.github', 'workflows', 'test.yml')
+  // 这份 CI 配置只在开发仓里有；公开仓的流水线是另一套，没有这份就不查
+  if (!existsSync(path)) {
+    t.skip('no .github/workflows/test.yml here')
+    return
+  }
+  const yml = readFileSync(path, 'utf8')
+  assert.match(yml, new RegExp(`node-version: '${NODE_VERSION.replaceAll('.', '\\.')}'`))
 })
 
 test('selectWheels fails closed when a package is absent', () => {

@@ -1,0 +1,6 @@
+# 投影缓存写得勤一点：用量那些数就在这个缓存里，界面上要马上看见
+# （默认 5 秒写一次，这里改成半秒）。
+- id: session-projection-cache
+  config:
+    writeEveryEvents: 20
+    writeIntervalMs: 500

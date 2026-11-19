@@ -20,12 +20,13 @@ export function createToggler({ isOpen, open, hide, closing = () => false, reaso
     isOpen() {
       return !!isOpen()
     },
-    toggle() {
+    // detail：打开时顺手交给任务窗的（小岛停在做完了 / 要你看一眼 / 没干成时，是那一轮的 taskId）
+    toggle(detail) {
       // 正在收：这下点的是小岛
       if (closing()) {
         // 收的理由已经是点小岛：再点一下就是让它回来，从收起一半的地方接着展开
         if (reason() === 'toggle') {
-          open()
+          open(detail)
           return 'opened'
         }
         // 同一下点（失焦先收的）：接着收
@@ -39,7 +40,7 @@ export function createToggler({ isOpen, open, hide, closing = () => false, reaso
       }
       // 刚因为失焦收起来的：这一下别再弹出来，等它自己安静一会儿
       if (blurredAt && now() - blurredAt < grace) return 'closed'
-      open()
+      open(detail)
       return 'opened'
     },
   }

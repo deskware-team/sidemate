@@ -21,6 +21,11 @@ contextBridge.exposeInMainWorld('pet', {
   onState: (fn) => on('state', fn),
   onScene: (fn) => on('scene', fn),
   onBubble: (fn) => on('bubble', fn),
+  onNews: (fn) => on('news', fn),
   onIntro: (fn) => on('intro', (payload) => fn(payload)),
   onPress: (fn) => on('press', (payload) => fn(payload)),
+  onNear: (fn) => on('near', (payload) => fn(payload)),
+  onExpect: (fn) => on('expect', (payload) => fn(payload)),
+  onShown: (fn) => on('shown', (payload) => fn(payload)),
+  onLayout: (fn) => on('layout', (payload) => fn(payload)),
 })

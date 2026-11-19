@@ -4,6 +4,7 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { t } from '../copy/copy.mjs'
 
 export const USAGE_FILE = 'usage.json'
 const NAME_MAX = 20
@@ -37,7 +38,7 @@ export function formatCount(value) {
   const n = Math.max(0, Math.round(Number(value) || 0))
   if (n < 10_000) return String(n)
   const wan = Math.round(n / 1000) / 10
-  return `${wan % 1 === 0 ? String(wan) : wan.toFixed(1)} 万`
+  return `${wan % 1 === 0 ? String(wan) : wan.toFixed(1)} ${t('usage.wan')}`
 }
 
 const two = (n) => String(n).padStart(2, '0')
@@ -104,7 +105,7 @@ export function bindUsageStore(dir) {
   return store
 }
 
-// run.mjs 每轮收尾调用这一处：用户那句话当任务名 + 这一轮的用量（含 searches，界面先不显示）
+// app/task/session.mjs 每轮收尾调用这一处：用户那句话当任务名 + 这一轮的用量（含 searches，界面先不显示）
 export function noteUsage(utterance, usage) {
   if (!store) return false
   return store.add(usage, utterance)
@@ -117,10 +118,10 @@ export function usageView(records, now = Date.now()) {
   const month = monthKey(now)
   const total = rows.filter((row) => monthKey(row.at) === month).reduce((sum, row) => sum + usageTotal(row), 0)
   return {
-    heading: `${new Date(now).getMonth() + 1} 月一共用了`,
+    heading: t('usage.heading', { month: new Date(now).getMonth() + 1 }),
     total: formatCount(total),
     recent: rows.slice(0, RECENT_MAX).map((row) => ({
-      name: typeof row.name === 'string' && row.name ? row.name : '一个任务',
+      name: typeof row.name === 'string' && row.name ? row.name : t('usage.taskFallback'),
       date: dayLabel(row.at),
       usage: formatCount(usageTotal(row)),
     })),

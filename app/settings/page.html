@@ -1,0 +1,129 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
+<title data-t="nav.title"></title>
+<link rel="stylesheet" href="page.css">
+<div id="winbar"><button id="win-close" type="button" data-t-title="frame.close"></button></div>
+<main>
+  <nav id="menu">
+    <button class="item" data-page="models" type="button" data-t="nav.models"></button>
+    <button class="item" data-page="caps" type="button" data-t="nav.caps"></button>
+    <button class="item" data-page="news" type="button" data-t="nav.news"></button>
+    <button class="item" data-page="usage" type="button" data-t="nav.usage"></button>
+    <button class="item" data-page="display" type="button" data-t="nav.display"></button>
+    <button class="item" data-page="about" type="button" data-t="nav.aboutPage"></button>
+  </nav>
+  <section id="content">
+    <div id="page-models" class="page">
+      <h1 data-t="nav.models"></h1>
+      <p id="models-warn" class="warn" hidden></p>
+      <p id="models-message" class="fine"></p>
+      <ul id="models-list" class="card"></ul>
+      <p class="add-row">
+        <button id="models-add" class="btn" type="button" data-t="custom.titleAdd"></button>
+        <button id="models-add-kilo" class="btn" type="button" data-t="modelPage.addKilo" hidden></button>
+      </p>
+    </div>
+    <div id="page-caps" class="page" hidden>
+      <h1 data-t="nav.caps"></h1>
+      <h2 class="ab-h" data-t="abilities.skills"></h2>
+      <ul id="ab-skills" class="card"></ul>
+      <p class="add-row">
+        <button id="ab-import" class="btn" type="button" data-t="abilities.import"></button>
+        <button id="ab-open-folder" class="btn" type="button" data-t="abilities.openFolder"></button>
+      </p>
+      <ul id="ab-import-problems" class="ab-problems"></ul>
+      <h2 class="ab-h" data-t="abilities.webTitle"></h2>
+      <ul id="ab-tools" class="card"></ul>
+      <h2 class="ab-h" data-t="abilities.mcp">MCP</h2>
+      <ul id="ab-mcp" class="card"></ul>
+      <p class="add-row">
+        <button id="ab-mcp-add" class="btn" type="button" data-t="mcp.titleAdd"></button>
+      </p>
+    </div>
+    <div id="page-news" class="page" hidden>
+      <h1 data-t="nav.news"></h1>
+      <ul id="news-list" class="card"></ul>
+      <p id="news-message" class="fine"></p>
+      <p class="add-row">
+        <button id="news-add" class="btn" type="button" data-t="newsPage.add"></button>
+      </p>
+      <hr class="news-line">
+      <div class="pref-row">
+        <label class="pref-label" for="news-catchup-input" data-t="newsPage.catchup"></label>
+        <span class="switch" id="news-catchup"><input type="checkbox" id="news-catchup-input"><span class="track"></span></span>
+      </div>
+      <div class="pref-row">
+        <label class="pref-label" for="news-notify-input" data-t="newsPage.notify"></label>
+        <span class="switch" id="news-notify"><input type="checkbox" id="news-notify-input"><span class="track"></span></span>
+      </div>
+    </div>
+    <div id="page-usage" class="page" hidden>
+      <h1 data-t="nav.usage"></h1>
+      <p id="usage-heading"></p>
+      <p id="usage-total"></p>
+      <h2 data-t="usage.recent"></h2>
+      <ul id="usage-recent"></ul>
+    </div>
+    <div id="page-display" class="page" hidden>
+      <h1 data-t="nav.display"></h1>
+      <div id="display-card" class="card display-card">
+        <div class="display-row">
+          <div class="display-text">
+            <span class="display-title" data-t="display.font"></span>
+          </div>
+          <div class="seg" id="font-seg" role="radiogroup"></div>
+        </div>
+        <hr class="display-line">
+        <div class="display-row">
+          <div class="display-text">
+            <span class="display-title" data-t="display.island"></span>
+          </div>
+          <div class="seg" id="island-seg" role="radiogroup"></div>
+        </div>
+      </div>
+    </div>
+    <div id="page-about" class="page" hidden>
+      <div id="about-home">
+        <div class="head">
+          <div class="mark" aria-hidden="true"><span></span><span></span></div>
+          <div class="who">
+            <h1 data-t="aboutPage.title"></h1>
+            <p id="about-version" class="fine"></p>
+          </div>
+        </div>
+        <label id="login-item-card" for="login-item-input">
+          <span class="pref-text">
+            <span class="pref-title" data-t="aboutPage.loginTitle"></span>
+          </span>
+          <span class="switch" id="login-item"><input type="checkbox" id="login-item-input"><span class="track"></span></span>
+        </label>
+        <ul id="doc-list" class="card"></ul>
+        <ul id="site-list" class="card">
+          <li id="site-row" hidden>
+            <button class="ext" id="site" type="button">
+              <span class="t" data-t="aboutPage.site"></span><span class="u">deskware.cn/sidemate</span><span class="a">↗</span>
+            </button>
+          </li>
+          <li>
+            <button class="ext" id="source" type="button">
+              <span class="t" data-t="aboutPage.source"></span><span class="u">github.com/deskware-team/sidemate</span><span class="a">↗</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+      <div id="doc-view" hidden>
+        <button id="doc-back" type="button" data-t="aboutPage.back"></button>
+        <div class="head">
+          <h2 id="doc-title"></h2>
+          <div id="doc-consent" hidden>
+            <span class="status"></span>
+            <button class="btn danger withdraw" type="button" data-t="aboutPage.withdraw"></button>
+          </div>
+        </div>
+        <div id="doc-text"></div>
+      </div>
+    </div>
+  </section>
+</main>
+<script type="module" src="page.js"></script>

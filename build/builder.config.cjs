@@ -10,7 +10,7 @@ module.exports = {
   compression: max ? 'maximum' : 'normal',
   artifactName: `sidemate-setup-\${version}${max ? '-max' : ''}.\${ext}`,
   directories: { output: 'dist' },
-  files: ['app/**/*', 'package.json'],
+  files: ['app/**/*', 'package.json', 'PRIVACY.md', 'LICENSE'],
   extraResources: [{ from: '.installer-cache', to: '.' }],
   extraFiles: [{ from: 'THIRD-PARTY-NOTICES.txt', to: 'THIRD-PARTY-NOTICES.txt' }],
   win: { target: [{ target: 'nsis', arch: ['x64'] }], executableName: 'sidemate', icon: 'build/icon.ico' },

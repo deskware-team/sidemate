@@ -1,0 +1,8 @@
+# 关掉两个上传：会话日志和插件包清单都不要再发给 DeepSeek 官方接口。
+# 桌伴的对话记录留在本机，不外传。
+- id: session-log-deepseek
+  config:
+    enabled: false
+- id: plugin-package-inventory-deepseek
+  config:
+    enabled: false

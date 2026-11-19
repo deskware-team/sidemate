@@ -1,47 +1,87 @@
 <!doctype html>
 <meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'">
-<title>桌伴</title>
+<title data-t="firstRun.titlebar"></title>
 <link rel="stylesheet" href="page.css">
+<div id="winbar"></div>
+<button id="win-close" type="button" data-t-title="frame.close"></button>
 <main>
   <div id="wizard">
-    <section id="safety">
-      <h1>用之前先看这四句</h1>
-      <ol id="lines"></ol>
-      <button id="start" type="button">开始</button>
+    <section id="about">
+      <h1 data-t="firstRun.aboutTitle"></h1>
+      <div id="lines">
+        <p data-t="firstRun.about1"></p>
+        <p data-t="firstRun.about2"></p>
+        <p data-t="firstRun.about3"></p>
+      </div>
+      <button id="start" class="primary" type="button" data-t="firstRun.start"></button>
     </section>
-    <section id="key" hidden>
-      <h1>贴上 DeepSeek 的钥匙</h1>
-      <label for="key-input">钥匙</label>
-      <input id="key-input" type="password" autocomplete="off" spellcheck="false">
-      <button id="test" type="button">测一下</button>
-      <p id="key-result"></p>
-      <button id="docs" class="link" type="button">还没有钥匙？看官方说明</button>
+
+    <section id="model" hidden>
+      <h1 data-t="firstRun.modelTitle"></h1>
+      <div id="recommend">
+        <div class="rec-head">
+          <h2 data-t="firstRun.deepseekTitle"></h2>
+          <span id="recommend-badge" data-t="firstRun.recommend"></span>
+        </div>
+        <div class="keyrow">
+          <input id="deepseek-key" type="password" autocomplete="off" spellcheck="false"
+            data-t-placeholder="firstRun.deepseekPlaceholder">
+          <button id="deepseek-test" class="primary" type="button" data-t="common.test"></button>
+        </div>
+        <span id="deepseek-result" class="result"></span>
+        <button id="deepseek-guide" class="outline" type="button" data-t="firstRun.guide"></button>
+      </div>
+      <h2 class="minor" data-t="firstRun.otherTitle"></h2>
+      <div id="others">
+        <button class="other" id="to-zhipu" type="button"><span data-t="firstRun.zhipuTitle"></span><span aria-hidden="true">›</span></button>
+        <button class="other" id="to-custom" type="button"><span data-t="firstRun.customTitle"></span><span aria-hidden="true">›</span></button>
+        <button class="other" id="to-kilo" type="button"><span data-t="firstRun.otherKilo"></span><span aria-hidden="true">›</span></button>
+      </div>
     </section>
+
+    <section id="guide" hidden>
+      <div class="backrow">
+        <button id="guide-back" class="back" type="button" data-t="firstRun.back"></button>
+      </div>
+      <h1 id="guide-title"></h1>
+      <p id="guide-intro"></p>
+      <ol id="guide-steps"></ol>
+      <p id="guide-outro" class="fine"></p>
+    </section>
+
+    <section id="zhipu" hidden>
+      <div class="backrow">
+        <button id="zhipu-back" class="back" type="button" data-t="firstRun.back"></button>
+      </div>
+      <h1 data-t="firstRun.zhipuTitle"></h1>
+      <button id="zhipu-guide" class="outline" type="button" data-t="firstRun.guide"></button>
+      <div class="keyrow">
+        <input id="zhipu-key" type="password" autocomplete="off" spellcheck="false"
+          data-t-placeholder="firstRun.zhipuPlaceholder">
+      </div>
+      <div class="actionrow">
+        <button id="zhipu-start" class="primary" type="button" data-t="firstRun.zhipuStart"></button>
+      </div>
+      <span id="zhipu-result" class="result"></span>
+    </section>
+
+    <section id="custom" hidden>
+      <div class="backrow">
+        <button id="custom-back" class="back" type="button" data-t="firstRun.back"></button>
+      </div>
+      <h1 data-t="firstRun.customTitle"></h1>
+      <p class="fine" data-t="firstRun.customHint"></p>
+      <div class="actionrow">
+        <button id="custom-done" class="primary" type="button" data-t="firstRun.customOk"></button>
+      </div>
+      <span id="custom-result" class="result"></span>
+    </section>
+
     <section id="intro" hidden>
       <p id="ok"></p>
       <h1 id="hint"></h1>
-      <button id="done" type="button">好</button>
-    </section>
-  </div>
-  <div id="settings" hidden>
-    <h1>设置</h1>
-    <section id="key">
-      <p id="have"></p>
-      <label for="settings-key">换一把钥匙</label>
-      <input id="settings-key" type="password" autocomplete="off" spellcheck="false">
-      <button id="save-key" type="button">测一下</button>
-      <p id="settings-key-result"></p>
-      <button id="settings-docs" class="link" type="button">还没有钥匙？看官方说明</button>
-    </section>
-    <section id="usage">
-      <h2>用量</h2>
-      <p id="usage-heading"></p>
-      <p id="usage-total"></p>
-      <p class="fine">跟 DeepSeek 后台记的数对得上</p>
-      <h2>最近 10 个任务</h2>
-      <ul id="usage-recent"></ul>
-      <p id="usage-note" class="fine">只记这台电脑上跑的任务。</p>
+      <button id="done" class="primary" type="button" data-t="firstRun.ok"></button>
     </section>
   </div>
 </main>

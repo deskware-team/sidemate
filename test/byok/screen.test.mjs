@@ -1,4 +1,4 @@
-// 首次运行和设置页。没设 SIDEMATE_BYOK 就跳过，平时 npm test 不拉起 Electron。
+// 首次运行和设置窗。没设 SIDEMATE_BYOK 就跳过，平时 npm test 不拉起 Electron。
 // Linux：xvfb-run -a -s "-screen 0 1280x800x24" env SIDEMATE_BYOK=1 node --test test/byok/screen.test.mjs
 
 import assert from 'node:assert/strict'
@@ -10,7 +10,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { SAFETY } from '../../app/byok/copy.mjs'
+import { t } from '../../app/copy/copy.mjs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '../..')
@@ -38,15 +38,18 @@ function connect(target) {
   })
 }
 
-test('first run and settings', { skip: process.env.SIDEMATE_BYOK ? false : 'set SIDEMATE_BYOK=1', timeout: 60_000 }, async () => {
+test('first run picks a model, settings live in their own window', { skip: process.env.SIDEMATE_BYOK ? false : 'set SIDEMATE_BYOK=1', timeout: 60_000 }, async () => {
   const lab = mkdtempSync(path.join(tmpdir(), 'sidemate-byok-screen-'))
   const home = path.join(lab, 'home')
   mkdirSync(home)
+  // 隔离的 LOCALAPPDATA：程序数据（%LOCALAPPDATA%\sidemate）跟着走，不碰真用户目录
+  const local = path.join(lab, 'local')
+  mkdirSync(local)
   const port = 9334
   const electron = createRequire(path.join(root, 'package.json'))('electron')
   const child = spawn(electron, ['.', `--remote-debugging-port=${port}`, '--no-sandbox', '--disable-gpu', `--user-data-dir=${path.join(lab, 'user')}`], {
     cwd: root,
-    env: { ...process.env, HOME: home, USERPROFILE: home, SIDEMATE_OPEN: 'settings', SIDEMATE_PET_STILL: '1' },
+    env: { ...process.env, HOME: home, USERPROFILE: home, LOCALAPPDATA: local, SIDEMATE_OPEN: 'settings', SIDEMATE_PET_STILL: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let stderr = ''
@@ -74,7 +77,7 @@ test('first run and settings', { skip: process.env.SIDEMATE_BYOK ? false : 'set 
       sockets.push(ws)
       let kind = ''
       for (let i = 0; i < 25 && !kind; i++) {
-        kind = await evaluate(ws, `document.querySelectorAll('#lines li').length >= 4 ? 'wizard' : (document.querySelector('#have').textContent ? 'settings' : '')`)
+        kind = await evaluate(ws, `document.querySelectorAll('#lines p').length >= 3 ? 'wizard' : (document.querySelector('#menu') ? 'settings' : '')`)
         if (!kind) await sleep(100)
       }
       if (kind === 'wizard') wizard = ws
@@ -82,31 +85,78 @@ test('first run and settings', { skip: process.env.SIDEMATE_BYOK ? false : 'set 
     }
     assert.ok(wizard, 'no first-run page')
     assert.ok(settings, 'no settings page')
-    const safety = JSON.parse(await evaluate(wizard, `JSON.stringify([...document.querySelectorAll('#lines li')].map((item) => item.textContent))`))
-    assert.deepEqual(safety, SAFETY)
+    // 第一步：「关于桌伴」一个标题、三句话
+    assert.equal(await evaluate(wizard, `document.querySelector('#about > h1').textContent`), t('firstRun.aboutTitle'))
+    const about = JSON.parse(await evaluate(wizard, `JSON.stringify([...document.querySelectorAll('#lines p')].map((item) => item.textContent))`))
+    assert.deepEqual(about, [t('firstRun.about1'), t('firstRun.about2'), t('firstRun.about3')])
+    // 「开始」在右下角，右边跟那三句对齐
+    const align = JSON.parse(await evaluate(wizard, `JSON.stringify({
+      start: document.querySelector('#start').getBoundingClientRect().right,
+      lines: document.querySelector('#lines').getBoundingClientRect().right,
+    })`))
+    assert.equal(Math.abs(align.start - align.lines) <= 1, true, JSON.stringify(align))
     const body = await evaluate(wizard, 'document.body.innerText')
     assert.equal(/terminal|git|patch|mcp|token/i.test(body), false)
     await evaluate(wizard, `document.querySelector('#start').click()`)
-    let empty = ''
-    await evaluate(wizard, `document.querySelector('#test').click()`)
-    for (let i = 0; i < 20 && empty !== '先贴上钥匙'; i++) {
-      await sleep(50)
-      empty = await evaluate(wizard, `document.querySelector('#key-result').textContent`)
-    }
-    assert.equal(empty, '先贴上钥匙')
+    // 第二步：先选一个模型
+    assert.equal(await evaluate(wizard, `document.querySelector('#model').hidden`), false)
+    assert.equal(await evaluate(wizard, `document.querySelector('#model > h1').textContent`), '选择模型')
+    assert.equal(await evaluate(wizard, `document.querySelector('#recommend-badge').textContent`), '推荐')
+    assert.equal(await evaluate(wizard, `document.querySelector('#deepseek-key').placeholder`), '贴上 DeepSeek 密钥')
+    // 钥匙空着：测一下点不了，也不进第三步
+    assert.equal(await evaluate(wizard, `document.querySelector('#deepseek-test').disabled`), true)
     assert.equal(await evaluate(wizard, `document.querySelector('#intro').hidden`), true)
-    assert.equal(await evaluate(settings, `document.querySelector('#have').textContent`), '还没有钥匙。')
-    // 用量一节：月份跟着当前月，新机器上是 0，最近 10 个任务空着
-    const month = `${new Date().getMonth() + 1} 月`
-    assert.equal(await evaluate(settings, `document.querySelector('#usage-heading').textContent`), `${month}一共用了`)
-    assert.equal(await evaluate(settings, `document.querySelector('#usage-total').textContent`), '0')
-    assert.equal(await evaluate(settings, `document.querySelector('#usage-note').textContent`), '只记这台电脑上跑的任务。')
-    assert.equal(await evaluate(settings, `document.querySelector('#usage-recent').children.length`), 0)
+    // 其他方式三块
+    const others = JSON.parse(await evaluate(wizard, `JSON.stringify([...document.querySelectorAll('#others .other')].map((item) => item.textContent))`))
+    assert.deepEqual(others, ['GLM 模型›', '自定义模型›', 'Kilo 模型›'])
+    // 版式：字号、底色、边线、圆角
+    const look = JSON.parse(await evaluate(wizard, `JSON.stringify({
+      h1: getComputedStyle(document.querySelector('#model > h1')).fontSize,
+      badge: getComputedStyle(document.querySelector('#recommend-badge')).color,
+      card: getComputedStyle(document.querySelector('#recommend')).borderRadius,
+      cardBorder: getComputedStyle(document.querySelector('#recommend')).borderTopWidth,
+      cardBg: getComputedStyle(document.querySelector('#recommend')).backgroundColor,
+      tile: getComputedStyle(document.querySelector('#others .other')).height,
+      tileRadius: getComputedStyle(document.querySelector('#others .other')).borderRadius,
+    })`))
+    assert.equal(look.h1, '22px')
+    assert.equal(look.badge, 'rgb(197, 58, 34)')
+    assert.equal(look.card, '10px')
+    assert.equal(look.cardBorder, '1.5px')
+    assert.equal(look.cardBg, 'rgb(255, 255, 255)')
+    assert.equal(look.tile, '52px')
+    assert.equal(look.tileRadius, '8px')
+    // 智谱二级页：返回、教程入口、钥匙框、用它开始
+    await evaluate(wizard, `document.querySelector('#to-zhipu').click()`)
+    assert.equal(await evaluate(wizard, `document.querySelector('#zhipu').hidden`), false)
+    assert.equal(await evaluate(wizard, `document.querySelector('#zhipu-key').placeholder`), '贴上 GLM 密钥')
+    assert.equal(await evaluate(wizard, `document.querySelector('#zhipu-start').disabled`), true)
+    assert.equal(await evaluate(wizard, `document.querySelector('#zhipu-test').textContent`), '测试')
+    assert.equal(await evaluate(wizard, `document.querySelector('#zhipu-test').disabled`), true)
+    assert.equal(await evaluate(wizard, `getComputedStyle(document.querySelector('#zhipu h1')).fontSize`), '20px')
+    await evaluate(wizard, `document.querySelector('#zhipu-back').click()`)
+    assert.equal(await evaluate(wizard, `document.querySelector('#model').hidden`), false)
+    // 教程小页：DeepSeek 那篇，编号步骤，带链接的那步能开官方页面
+    await evaluate(wizard, `document.querySelector('#deepseek-guide').click()`)
+    for (let i = 0; i < 20 && await evaluate(wizard, `document.querySelector('#guide-title').textContent`) === ''; i++) await sleep(50)
+    assert.equal(await evaluate(wizard, `document.querySelector('#guide-title').textContent`), '获取 DeepSeek 密钥')
+    assert.equal(await evaluate(wizard, `document.querySelectorAll('#guide-steps li').length`), 5)
+    assert.equal(await evaluate(wizard, `document.querySelectorAll('#guide-steps .link').length > 0`), true)
+    // 编号圆点 20 见方，返回行旁边不摆小字
+    assert.equal(await evaluate(wizard, `getComputedStyle(document.querySelector('#guide-steps li'), '::before').width`), '20px')
+    assert.equal(await evaluate(wizard, `document.querySelector('#guide .back-hint') === null`), true)
+    await evaluate(wizard, `document.querySelector('#guide-back').click()`)
+    assert.equal(await evaluate(wizard, `document.querySelector('#model').hidden`), false)
+    // 界面上不出现禁区词
+    const wizardBody = await evaluate(wizard, 'document.body.innerText')
+    assert.equal(/terminal|git|patch|mcp|token/i.test(wizardBody), false)
+    // 设置在自己的窗口里，不挂在首次运行窗上
+    assert.equal(await evaluate(wizard, `document.querySelector('#settings') === null`), true)
     const settingsBody = await evaluate(settings, 'document.body.innerText')
-    assert.equal(settingsBody.includes('跟 DeepSeek 后台记的数对得上'), true)
-    assert.equal(/terminal|git|patch|mcp|token/i.test(settingsBody), false)
-    assert.equal(await evaluate(settings, `document.querySelector('#rate') === null && document.querySelector('#save-rate') === null`), true)
-    assert.equal(await evaluate(settings, `document.querySelector('#price-hint') === null`), true)
+    assert.equal(settingsBody.includes('模型'), true)
+    // 设置窗归别的卡管，它的「能力」那一页本来就摆着 MCP 的字样，
+    // 本卡只查其余几个禁区词。
+    assert.equal(/terminal|git|patch|token/i.test(settingsBody), false)
     if (stderr.includes('Error')) console.log(stderr.slice(-2000))
   } finally {
     for (const ws of sockets) ws.close()

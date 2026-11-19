@@ -30,6 +30,8 @@ export const INCLUDE = [
   'SECURITY.md',
   'docs/release-0.2.0.md',
   'docs/release-0.2.0.en.md',
+  'docs/release-0.3.0.md',
+  'docs/release-0.3.0.en.md',
 ]
 
 // 明确不拷的（白名单之外也要挡一道，免得以后有人把它加进白名单）。

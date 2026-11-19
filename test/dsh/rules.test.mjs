@@ -31,13 +31,13 @@ function taskOptions(extra) {
 }
 
 after(() => {
-  for (const dir of roots) rmSync(dir, { recursive: true, force: true })
+  for (const dir of roots) { try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) } catch { /* Windows 上进程刚收掉还占着文件：删不掉就留给系统清 */ } }
 })
 
 const RULE_HEAD = '桌伴的干活规矩：'
-const RULE_THREE = '3. 改已有的脚本或文本文件用 edit 工具。不要用 PowerShell 的 Get-Content、Set-Content 读写含中文的文件，会把中文读坏。'
-const RULE_FOUR = '4. 成品写在工作区根目录；中间文件和调试输出写进 .草稿/ 目录；都不要写进「桌伴输出」，桌伴整轮干完自己拷过去。'
-const RULE_OUT = '成品写在工作区根目录'
+const RULE_TWO = '2. 用户给的文件是当资源链接发给你的：'
+const RULE_THREE = '3. 改已有的脚本或文本文件用 edit 工具。'
+const RULE_OUT = '成品默认写在这个任务文件夹的根目录'
 const CHINESE_PROBE = '中文测试一二三'
 const RULE_FILE = new URL('../../app/dsh/rules.patch.yml', import.meta.url)
 
@@ -71,11 +71,83 @@ describe('dsh rules', { concurrency: 1 }, () => {
     assert.equal(/coding agent/i.test(text), false, text)
   })
 
-  test('the rules keep the product out of the output folder: the shell copies it over', () => {
+  test('the rules no longer talk about scanning, fonts or the shell checking the file', () => {
     const text = readFileSync(RULE_FILE, 'utf8')
-    // 成品先写在工作区根目录，桌伴整轮干完自己拷进「桌伴输出」：这句不能丢
+    // 扫描件转图、字体整理、交稿体检、出处标记：桌伴不再管，规矩里也不提了
+    assert.equal(text.includes('扫描页转成图'), false, text)
+    assert.equal(text.includes('桌伴已经把扫描页转成图'), false, text)
+    assert.equal(text.includes('桌伴会统一整理字体'), false, text)
+    assert.equal(text.includes('桌伴交稿前会检查'), false, text)
+    assert.equal(text.includes('打不开的不算成品'), false, text)
+    assert.equal(text.includes('fontTable'), false, text)
+    assert.equal(text.includes('这一处没认出来'), false, text)
+  })
+
+  test('the rules do not tell the model it cannot see pictures', () => {
+    const text = readFileSync(RULE_FILE, 'utf8')
+    // 能看图的模型（deepseek-flash、勾了「支持图片输入」的自定义模型）看到这句就不去读用户发的图了
+    assert.equal(text.includes('看不了图片'), false, text)
+    assert.equal(text.includes('看不了图'), false, text)
+    // 「不许渲染自检」这句删了：模型不用再自己渲染一遍检查
+    assert.equal(text.includes('自己生成的文件不要为了检查效果去渲染预览图'), false, text)
+    assert.equal(text.includes('渲染'), false, text)
+  })
+
+  test('the rules keep the products in the task folder: no output folder, no draft folder', () => {
+    const text = readFileSync(RULE_FILE, 'utf8')
+    // 成品就在任务文件夹根目录：桌伴不再拷一层
     assert.ok(text.includes(RULE_OUT), text)
-    assert.ok(text.includes(RULE_FOUR), text)
+    // 过程文件在 .sidemate\，用户给的文件在 received\ 且只读
+    assert.ok(text.includes('.sidemate\\'), text)
+    assert.ok(text.includes('received\\'), text)
+    assert.ok(text.includes('只读'), text)
+    // 交稿用 present
+    assert.ok(text.includes('调用 present 交稿'), text)
+    // 旧的两层没了
+    assert.equal(text.includes('桌伴输出'), false, text)
+    assert.equal(text.includes('.草稿/'), false, text)
+    assert.equal(text.includes('.草稿\\'), false, text)
+  })
+
+  test('the rules say the files come in as resource links', () => {
+    const text = readFileSync(RULE_FILE, 'utf8')
+    assert.ok(text.includes('资源链接'), text)
+    assert.ok(text.includes('file://'), text)
+    // 读文件用 name（相对路径），uri 是百分号编码的地址，不是路径
+    assert.ok(text.includes('name 是它在任务文件夹里的相对路径'), text)
+    assert.ok(text.includes('百分号编码'), text)
+    assert.ok(text.includes('不要拿 uri 去读文件'), text)
+  })
+
+  test('the rules do not teach the model to turn a uri into a path', () => {
+    const text = readFileSync(RULE_FILE, 'utf8')
+    // 教模型自己转 uri 会拿到 %E8%8C%83 这种编码路径，读不到文件
+    assert.equal(text.includes('去掉 file://'), false, text)
+    assert.equal(text.includes('把开头的 / 去掉'), false, text)
+    assert.equal(text.includes('对应 C:/'), false, text)
+  })
+
+  test('the rules forbid bracket placeholders in the finished document', () => {
+    const text = readFileSync(RULE_FILE, 'utf8')
+    assert.ok(text.includes('不要留 [20XX]年[月][日]'), text)
+    assert.ok(text.includes('先在回话里问一句'), text)
+    assert.ok(text.includes('日期用当天的日期'), text)
+  })
+
+  test('office files have to be real: no renamed scripts, scripts go to the process folder', () => {
+    const text = readFileSync(RULE_FILE, 'utf8')
+    assert.ok(text.includes('openpyxl'), text)
+    assert.ok(text.includes('python-docx'), text)
+    assert.ok(text.includes('python-pptx'), text)
+    assert.ok(text.includes('不要把脚本改成'), text)
+    assert.ok(text.includes('.sidemate\\'), text)
+  })
+
+  test('the rules use the bundled python and read pdf with pypdf', () => {
+    const text = readFileSync(RULE_FILE, 'utf8')
+    assert.ok(text.includes('直接用 python 命令'), text)
+    assert.ok(text.includes('不要 pip install'), text)
+    assert.ok(text.includes('pypdf'), text)
   })
 
   test('the launch env pins python output to utf-8', () => {
@@ -103,8 +175,8 @@ describe('dsh rules', { concurrency: 1 }, () => {
     assert.ok(text.includes(RULE_HEAD), text.slice(0, 2000))
     // the yaml dump wraps long lines, so compare with the whitespace flattened
     const flat = text.replace(/\s+/g, ' ')
+    assert.ok(flat.includes(RULE_TWO), text.slice(-2000))
     assert.ok(flat.includes(RULE_THREE), text.slice(-2000))
-    assert.ok(flat.includes(RULE_FOUR), text.slice(-2000))
   })
 
   test('python output through the pwsh tool keeps its chinese', { timeout: 90_000 }, async (t) => {
@@ -127,7 +199,7 @@ describe('dsh rules', { concurrency: 1 }, () => {
           try {
             const system = JSON.stringify(body.system)
             assert.ok(system.includes(RULE_HEAD), system.slice(0, 2000))
-            assert.ok(system.includes(RULE_THREE), system.slice(0, 2000))
+            assert.ok(system.includes(RULE_TWO), system.slice(0, 2000))
           } catch (error) {
             firstRequestError = error
           }
@@ -156,7 +228,7 @@ describe('dsh rules', { concurrency: 1 }, () => {
     const events = []
     try {
       const end = await runTask({
-        ...taskOptions({ taskId: 'rules', apiKey: KEY, prompt: '准备', stallMs: 30_000, baseUrl: fake.url }),
+        ...taskOptions({ taskId: 'rules', apiKey: KEY, prompt: '准备', baseUrl: fake.url }),
         onEvent: (event) => events.push(event),
       }).done
       assert.equal(end.status, 'done', JSON.stringify(events))

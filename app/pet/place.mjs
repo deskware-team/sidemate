@@ -69,34 +69,16 @@ function displayOf(scr, saved) {
 
 // 启动恢复：算小岛该在哪块屏的顶边、x 是多少。纯函数，screen 拿假的也能测。
 // 存过在哪块屏就照存的放；那块屏不在了就回主屏顶边正中。
-// 以前存过小球（scene 是 'ball'，或带 ball 字段）的一律当吸顶：贴在球那块屏的顶边，x 用球心减半个小岛再夹进屏内。
 export function restorePlace(saved, scr, island) {
   const primary = scr.getPrimaryDisplay()
   const old = saved && typeof saved === 'object' ? saved : null
-  // 旧的小球数据：迁成吸顶
-  if (old && old.ball && typeof old.ball === 'object' && Number.isFinite(Number(old.ball.x))) {
-    const spot = {
-      x: Number(old.ball.x),
-      y: Number.isFinite(Number(old.ball.y)) ? Number(old.ball.y) : Number(old.ball.x),
-    }
-    const work = displayAt(scr, spot).workArea
-    return { area: work, x: clampX(spot.x - island / 2, work, island) }
-  }
-  // 新格式：存了在哪块屏（display.id，外加那份 bounds 防 id 变）和相对那块屏左边的 x
+  // 格式：存了在哪块屏（display.id，外加那份 bounds 防 id 变）和相对那块屏左边的 x
   if (old && Number.isFinite(Number(old.display))) {
     const display = displayOf(scr, old)
     if (!display) return { area: primary.workArea, x: centerX(primary.workArea, island) }
     const work = display.workArea
     const rel = Number.isFinite(Number(old.x)) ? Number(old.x) : Math.round((work.width - island) / 2)
     return { area: work, x: clampX(work.x + rel, work, island) }
-  }
-  // 旧格式（只存了绝对 x/y）：那块屏还在就照旧的放
-  if (old && Number.isFinite(Number(old.x))) {
-    const work = displayAt(scr, {
-      x: Number(old.x),
-      y: Number.isFinite(Number(old.y)) ? Number(old.y) : Number(old.x),
-    }).workArea
-    return { area: work, x: clampX(Number(old.x), work, island) }
   }
   // 没存过：主屏顶边正中
   return { area: primary.workArea, x: centerX(primary.workArea, island) }
@@ -107,6 +89,8 @@ export function restorePlace(saved, scr, island) {
 export function dropScene(current) {
   if (current === 'line') return 'tray'
   if (current === 'strip') return 'tray'
+  // 正冒着一行字也能接：换成「松手交给我」
+  if (current === 'expanded') return 'tray'
   return null
 }
 

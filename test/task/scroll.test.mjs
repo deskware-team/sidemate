@@ -39,11 +39,11 @@ test('秒数：小岛和任务窗一个写法', () => {
   assert.equal(elapsedText(94000), '1 分 34 秒')
 })
 
-test('回车发消息不跳顶：量高度时把滚动位置放回去，发完一定到底', () => {
-  // 量对话流高度时临时把高度放开，滚动位置会被压回 0；量完要放回去
-  assert.match(page, /function flowHeight\(\)[\s\S]*?const top = els\.flow\.scrollTop[\s\S]*?els\.flow\.scrollTop = top/)
-  // 发完消息滚到底
-  assert.match(page, /forceBottom = true[^\n]*\n[^\n]*act\(\{ type: 'send', text \}\)/)
+test('回车发消息不跳顶：重画时记住滚动位置，发完一定到底', () => {
+  // 重画对话流时先把滚动位置记下来，没滚到底的就放回去，别跳顶
+  assert.match(page, /const back = el\.scrollTop[\s\S]*?el\.scrollTop = back/)
+  // 发完消息滚到底：干活中发出去的是插进去的那一句，不干活时是新的一轮
+  assert.match(page, /forceBottom = true[^\n]*\n[^\n]*act\(\{ type: view\.phase === 'working' \? 'steer' : 'send', text \}\)/)
   // 来了新内容按离底多远决定
   assert.match(page, /scrollDecision\(\{ distance, force: forceBottom \}\)/)
 })

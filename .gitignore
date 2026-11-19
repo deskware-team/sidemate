@@ -3,3 +3,4 @@ payload/
 dist/
 .installer-cache/
 Python/
+__pycache__/

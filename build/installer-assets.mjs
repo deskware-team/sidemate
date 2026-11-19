@@ -6,10 +6,11 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
+import { findSevenZip } from './licenses.mjs'
+
 const here = dirname(fileURLToPath(import.meta.url))
 const payload = join(dirname(here), 'payload')
 const cache = join(dirname(here), '.installer-cache')
-const sevenza = join(process.env.LOCALAPPDATA ?? '.', 'electron-builder', 'Cache', '7zip@1.0.0', '7zip-win-x64-a34pt', 'bin', '7za.exe')
 
 // PE x64 以外（ELF、Mach-O、PE arm64/x86…）在这台机器上永远 dlopen 不了
 export function unloadable(buf) {
@@ -50,7 +51,9 @@ export function pruneInspector(payloadRoot) {
 
 export function prepare() {
   if (!existsSync(join(payload, 'node', 'node.exe'))) throw new Error('payload/ 不在，先 npm run payload -- win-x64')
-  if (!existsSync(sevenza)) throw new Error(`7za 不在：${sevenza}`)
+  // 7za 在 electron-builder 的缓存里，缓存目录名带版本和哈希，会变：现找现用
+  const sevenza = findSevenZip()
+  if (!sevenza) throw new Error('7za 不在：electron-builder 的缓存里没找到 7za.exe')
   mkdirSync(cache, { recursive: true })
   rmSync(join(cache, 'payload.7z'), { force: true })
   const dropped = [pruneInspector(payload), ...prune(join(payload, 'dsh', 'node_modules'))]
