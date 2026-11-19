@@ -23,7 +23,7 @@ defaults:
 jobs:
   check:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       # 跟本地开发一样按原样检出，不把换行改成 CRLF。
       - run: git config --global core.autocrlf false
@@ -46,7 +46,13 @@ jobs:
         with:
           node-version: 24
 
-      # 测试不用装依赖。dsh、cite 和 workspace/escape 要先打出 payload（几百 MB），不在这里跑。
+      # 有的测试要起 Electron、要用别的依赖：先照锁文件装依赖（跟发版流水线一样钉 npm 版本）。
+      - name: 装依赖
+        run: |
+          npm install -g npm@11.19.1
+          npm ci
+
+      # dsh、cite 和 workspace/escape 要先打出 payload（几百 MB），不在这里跑。
       - name: 测试
         run: |
           find test -name '*.test.mjs' -not -path 'test/dsh/*' -not -path 'test/cite/*' -not -name escape.test.mjs -print0 \
