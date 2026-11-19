@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -53,8 +53,14 @@ test('node is pinned with its win-x64 zip sha256 and SHASUMS256.txt has to agree
   assert.throws(() => listedNodeSha('', name), /has no/)
 })
 
-test('CI runs the tests on the same node as the payload', () => {
-  const yml = readFileSync(join(import.meta.dirname, '..', '..', '.github', 'workflows', 'test.yml'), 'utf8')
+test('CI runs the tests on the same node as the payload', (t) => {
+  const path = join(import.meta.dirname, '..', '..', '.github', 'workflows', 'test.yml')
+  // 这份 CI 配置只在开发仓里有；公开仓的流水线是另一套，没有这份就不查
+  if (!existsSync(path)) {
+    t.skip('no .github/workflows/test.yml here')
+    return
+  }
+  const yml = readFileSync(path, 'utf8')
   assert.match(yml, new RegExp(`node-version: '${NODE_VERSION.replaceAll('.', '\\.')}'`))
 })
 

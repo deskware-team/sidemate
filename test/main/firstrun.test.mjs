@@ -52,10 +52,17 @@ async function tryOnce() {
   for (const dir of [up, home, roaming, local]) mkdirSync(dir, { recursive: true })
 
   const port = await freePort()
-  const child = spawn(electronPath, [resolve('.'), `--remote-debugging-port=${port}`], {
-    env: { ...process.env, USERPROFILE: up, HOME: home, APPDATA: roaming, LOCALAPPDATA: local },
-    stdio: 'ignore',
-  })
+  let child
+  try {
+    child = spawn(electronPath, [resolve('.'), `--remote-debugging-port=${port}`], {
+      env: { ...process.env, USERPROFILE: up, HOME: home, APPDATA: roaming, LOCALAPPDATA: local },
+      stdio: 'ignore',
+    })
+  } catch (err) {
+    // Electron 刚装好、exe 还被占着（杀毒软件在扫）时 spawn 直接抛 EBUSY：这一次算没试成，歇一会儿再试
+    try { rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }) } catch { /* 删不掉留给系统清 */ }
+    return { ok: false, busy: true, why: `Electron 起不来：${(err && err.code) || err}` }
+  }
   try {
     return await waitForIsland(port, child, 45_000)
   } finally {
@@ -83,8 +90,8 @@ test('第一次启动：用户目录是全新的空目录时，桌伴也能起�
   for (let attempt = 1; attempt <= ATTEMPTS; attempt += 1) {
     last = await tryOnce()
     if (last.ok) break
-    // 试完一次歇一下再试，别让上一轮残留的进程跟下一轮抢
-    await new Promise((r) => setTimeout(r, 2000))
+    // 试完一次歇一下再试，别让上一轮残留的进程跟下一轮抢；exe 被占着时多歇一会儿
+    await new Promise((r) => setTimeout(r, last.busy ? 10_000 : 2000))
   }
   assert.equal(last.ok, true, `试了 ${ATTEMPTS} 次都不行：${last.why}`)
   assert.equal(last.title, ISLAND_TITLE)
