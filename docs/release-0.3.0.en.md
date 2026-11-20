@@ -1,8 +1,8 @@
 # Sidemate 0.3.0
 
-Sidemate sits at the top of your screen and shows nothing but a pair of eyes. From 0.3 it can switch between several models, install skills, connect to outside services, and bring you news at the time you choose.
+This project is developed on DeepSeek Harness. Sidemate is your companion: it sits at the top of your screen and shows nothing but a pair of eyes. Version 0.3 supports DeepSeek, Kilo or BYOK (bring your own key), supports Skills and MCP, and adds a news feature that brings you the content you care about at the time you choose.
 
-This version still runs on Windows only.
+This version still supports Windows only.
 
 ## Read this before upgrading from 0.2
 
@@ -17,19 +17,17 @@ This version still runs on Windows only.
 
 ### New
 
-- **Switch between models**: four ways in.
-  - **Kilo**: no key needed; it goes through Kilo's public free gateway. Usage is limited. Before you use it you read the free channel notice and agree that your content is processed outside China.
-  - **DeepSeek**: paste your own API key and pay for what you use. It can read images and scanned documents.
-  - **GLM (Zhipu)**: register for your own key; the default is the free GLM-4.7-Flash.
-  - **Custom**: enter an address, a model name and a key; OpenAI-style and Anthropic-style APIs both work.
-  - Pick a default under Settings · Models and every new task uses it. The tag at the bottom left of the task window's input box switches the model for that task only; for DeepSeek it also sets the thinking level (off, low, high, max; high by default).
-- **Skills and services** (Settings · Capabilities):
+- **Multiple model providers**:
+  - **DeepSeek**: paste your own API key and pay for what you use; DeepSeek's native tools are supported.
+  - **Kilo**: uses Kilo's gateway, with usage limits; see the Kilo notice in the app and Kilo's official terms.
+  - **Custom**: enter an address, a model name and an API key; OpenAI-style and Anthropic-style APIs both work.
+- **Install Skills, connect MCP** (Settings · Capabilities):
   - **Skills**: import a folder or a .zip. You can also say "install the xxx skill" in a conversation: it first shows a confirmation card with what it will install and where from, and downloads only after you click "Install". Skills installed this way show their source repository, commit and license in Settings.
   - **MCP**: enter a URL, paste a config copied from elsewhere, or enter a local program (command, arguments, environment variables) to connect an outside service. A service's key is given to that service only, never to scripts the model writes.
   - **Built in**: "Writing", plus the recommended "Flowcharts" (flowcharts, responsibility charts and timelines, drawn as boxes and arrows you can edit and move in Word or PowerPoint). Both are on by default.
 - **News** (Settings · News):
   - Say what you want to read and when. At that time your model searches and reads the original pages itself, and every item links to a page it actually opened in that run. "Generate now" runs it right away.
-  - It needs web search: add a DeepSeek key, or add a search tool under Capabilities.
+  - It needs web search: add a DeepSeek API key, or add a search tool under Capabilities.
   - Each topic has "Auto-grant permissions: allow / deny". With deny, actions that need extra permission while generating are refused, which may make generation fail.
   - The island tells you when news is ready. Right-click the island and choose "News" to browse by topic and day. News stays inside Sidemate; say "turn this into Word" in that news conversation to get a file.
   - If the computer was asleep at the scheduled time, it catches up when it wakes (you can turn this off). Nothing is generated while Sidemate is closed.
@@ -73,12 +71,11 @@ Uninstalling asks once, "Uninstall Sidemate?", with one option that is unticked 
 ## Known issues
 
 - Kilo has usage limits, and Kilo AI decides the quota and availability. When you run out, wait a while or switch to another model.
-- If you only use Kilo or GLM you cannot subscribe to news yet: news needs web search, so add a DeepSeek key or a search tool under Capabilities.
-- The free GLM model handles one request at a time and may say it is overloaded when busy. Sidemate waits and retries; if that fails, switch to another model.
-- If the current model cannot read images, a message with an image or a scanned document cannot be sent; it reminds you to switch to a model that can (DeepSeek, for example).
+- If you only use Kilo you cannot subscribe to news yet: news needs web search, so add a DeepSeek API key or a search tool under Capabilities.
+- If the current model does not support image input, a message with an image cannot be sent; it reminds you to switch to a model that can read images.
 - The installer is not signed, so Windows stops it the first time.
 - Tested only on Windows 10 and 11.
 
 ## Privacy
 
-Sidemate has no accounts and no servers of its own, and collects no usage data. Your keys are encrypted on this computer. Task content goes only to the model you chose; with Kilo, content is processed by Kilo AI outside China. See [PRIVACY.md](../PRIVACY.md).
+Sidemate has no accounts and no servers of its own, and collects no usage data. With the Kilo model, content is sent to Kilo AI for processing. See [PRIVACY.md](../PRIVACY.md).
