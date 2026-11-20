@@ -2,11 +2,72 @@
                     Third-Party Notices
 
 本文件列出桌伴（Sidemate）Windows 安装包里随包分发的第三方组件及其许可协议。
-各组件的著作权归其各自作者所有。
+各组件的著作权归其各自权利人所有，并依照其各自的许可协议分发；本文件对任何
+第三方组件不作额外授权，也不改变其原有许可条款。桌伴自身源代码的许可协议见
+LICENSE（MIT License），该许可仅适用于桌伴自身的源代码，不适用于本文件所列的
+第三方组件。
 
 文件末尾的「逐项清单」是这个文件的机器可读部分：每个实际随包分发的组件一行，
 格式为「名字 版本 — 许可证」。改 payload 里的依赖后，用
 `node build/licenses.mjs` 核对；缺项或对不上时这个命令会以非 0 退出。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DeepSeek Harness（本软件所基于的开源项目）
+
+  桌伴基于 DeepSeek Harness（@deepseek-ai/dsh 0.2.2-rc.3，
+  https://github.com/deepseek-ai/deepseek-harness）开发，并随安装包分发其 npm
+  发行版。除打包时删除不适用于 Windows x64 的预编译二进制文件，以及本软件不加载的
+  @deepseek-ai/dsh-experimental-inspector 包外，未对其文件作任何修改；桌伴通过
+  DeepSeek Harness 公开的配置文件与插件机制扩展其功能。桌伴为独立开发的非官方
+  产品，与 DeepSeek Harness 的权利人不存在隶属、合作、授权或背书关系。
+
+  DeepSeek Harness 的版权与许可声明全文如下（亦保留在安装目录
+  resources/app/payload/dsh/node_modules/@deepseek-ai/dsh/LICENSE）：
+
+  MIT License
+
+  Copyright (c) 2026 DeepSeek
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+第三方服务（不随包分发）
+
+  桌伴可按用户的选择和配置连接以下第三方服务。这些服务不包含在安装包内，
+  由其各自的提供者运营；其使用受各提供者的服务条款与隐私政策约束，
+  额度、可用性及数据处理以各提供者的规定为准：
+
+  - DeepSeek 开放平台（https://platform.deepseek.com）：用户自行配置 API key 后使用。
+  - Kilo AI 的模型网关（https://kilo.ai）：使用前须阅读并同意本软件内的
+    《Kilo 模型使用须知》，并遵守 Kilo AI 的服务条款与隐私政策。
+  - 用户自行添加的自定义模型服务与 MCP 服务：由用户自行选择，按其提供者的条款使用。
+  - GitHub（https://github.com）：仅在用户确认安装技能时，用于下载该技能。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+商标声明
+
+  DeepSeek、DeepSeek Harness、Kilo、Electron、Node.js、Python 及其他组件和服务的
+  名称与标识归其各自权利人所有。本文件及桌伴提及上述名称，仅用于标明所使用的
+  组件或所兼容的服务的来源，不表示上述权利人对桌伴的认可、赞助或授权。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -15,7 +76,7 @@ MIT License 组件
   - Electron 45.2.1（桌伴的壳，https://github.com/electron/electron）
   - Node.js v24.22.3（给后台程序用的 node.exe，https://nodejs.org；
     许可文本随包在 resources/app/payload/node/LICENSE）
-  - @deepseek-ai/dsh 0.2.2-rc.3 及其 npm 依赖共 598 个包
+  - @deepseek-ai/dsh 0.2.2-rc.3（DeepSeek Harness，见上一节）及其 npm 依赖共 598 个包
     （https://github.com/deepseek-ai/deepseek-harness）。
     按 payload/dsh/node_modules 里各包 package.json 的 license 字段统计：
     MIT 507 个（zod、@anthropic-ai/sdk、openai、@opentelemetry/* 等）；
@@ -95,7 +156,7 @@ Python Software Foundation License
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-如需获取任何第三方组件的完整许可协议文本或源代码，请联系：sidemate@deskware.cn
+如需获取任何第三方组件的完整许可协议文本或源代码，请联系：hello@deskware.cn
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
