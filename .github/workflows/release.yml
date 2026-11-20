@@ -158,10 +158,13 @@ jobs:
             echo "没有发布说明：$notes" >&2
             exit 1
           fi
+          # 说明文件第一行是「# 桌伴 x.y.z」，跟 Release 标题重复：去掉这一行和紧跟的空行再当正文
+          body="$RUNNER_TEMP/release-notes.md"
+          sed '1{/^# /d}' "$notes" | sed '/./,$!d' > "$body"
           gh release create "${{ github.ref_name }}" \
             --repo "$GITHUB_REPOSITORY" \
             --title "桌伴 $version" \
-            --notes-file "$notes" \
+            --notes-file "$body" \
             dist/*.exe dist/*.sha256
 
       # 演练：只把安装包和 sha256 存成附件，不建 Release。
