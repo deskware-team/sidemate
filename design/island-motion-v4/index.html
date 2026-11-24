@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>小岛动画 0.4 小样 v4 · eyes only</title>
+<style>
+  :root {
+    --island: #22201c;
+    --eye: #f5f1e8;
+    --desk-a: #e8edf3;
+    --desk-b: #d5dce6;
+    --muted: #5f5a52;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 1280px; height: 720px; overflow: hidden;
+    background: #d5dce6;
+    font-family: "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .desk {
+    position: relative; width: 1280px; height: 720px;
+    background:
+      radial-gradient(1200px 500px at 50% -40px, #f4f7fb 0%, transparent 70%),
+      linear-gradient(180deg, var(--desk-a) 0%, var(--desk-b) 100%);
+  }
+  .desk::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+    background: rgba(34, 32, 28, 0.08); pointer-events: none;
+  }
+  .island-stage {
+    position: absolute; left: 50%; top: 150px;
+    width: 112px; height: 30px;
+    transform: translateX(-50%) scale(6);
+    transform-origin: top center;
+    z-index: 3; pointer-events: none; overflow: visible;
+  }
+  .island {
+    position: absolute; left: 50%; top: 0;
+    height: 30px; width: 112px; margin-left: -56px;
+    border-radius: 15px; background: var(--island);
+    box-shadow: 0 1.5px 4px rgba(18, 16, 11, 0.28), 0 0.25px 0 rgba(255,255,255,0.06) inset;
+    overflow: visible; transform-origin: center center;
+    will-change: transform, width, margin-left;
+  }
+  .island-inner { position: relative; width: 100%; height: 30px; border-radius: 15px; overflow: hidden; }
+  .eyes-svg { position: absolute; left: 0; top: 0; width: 112px; height: 30px; overflow: visible; display: block; }
+  .caption {
+    position: absolute; left: 0; right: 0; bottom: 40px;
+    text-align: center; font-size: 14px; font-weight: 400;
+    letter-spacing: 0.08em; color: var(--muted); opacity: 0.8;
+    z-index: 5; pointer-events: none; text-transform: lowercase;
+  }
+  .cursor {
+    position: absolute; width: 18px; height: 24px; z-index: 8;
+    pointer-events: none; filter: drop-shadow(0 1px 1.5px rgba(18,16,11,0.35));
+    opacity: 0; will-change: transform, opacity;
+  }
+  .file-chip {
+    position: absolute; z-index: 7; width: 44px; height: 52px; opacity: 0;
+    will-change: transform, opacity; pointer-events: none;
+    filter: drop-shadow(0 3px 6px rgba(18,16,11,0.18));
+  }
+  .replay {
+    position: absolute; left: 50%; bottom: 72px; transform: translateX(-50%);
+    z-index: 9; border: 0; background: rgba(34,32,28,0.86); color: #f5f1e8;
+    font: 13px/1 "Noto Sans CJK SC", "Noto Sans SC", sans-serif;
+    padding: 8px 16px; border-radius: 999px; cursor: pointer;
+    opacity: 0; pointer-events: none;
+    transition: opacity 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .replay.show { opacity: 1; pointer-events: auto; }
+</style>
+</head>
+<body>
+  <div class="desk" id="desk">
+    <div class="island-stage">
+      <div class="island" id="island">
+        <div class="island-inner">
+          <svg class="eyes-svg" id="eyesSvg" viewBox="0 0 112 30" width="112" height="30" aria-hidden="true">
+            <g id="gL">
+              <ellipse id="pupilL" cx="0" cy="0" rx="5.3" ry="5.3" fill="#f5f1e8"/>
+              <path id="lidL" fill="none" stroke="#f5f1e8" stroke-width="1.4" stroke-linecap="round" opacity="0"
+                d="M-5.1 1.05 Q 0 -1.75 5.1 1.05"/>
+            </g>
+            <g id="gR">
+              <ellipse id="pupilR" cx="0" cy="0" rx="5.3" ry="5.3" fill="#f5f1e8"/>
+              <path id="lidR" fill="none" stroke="#f5f1e8" stroke-width="1.4" stroke-linecap="round" opacity="0"
+                d="M-5.1 1.05 Q 0 -1.75 5.1 1.05"/>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+    <svg class="file-chip" id="fileChip" viewBox="0 0 44 52" aria-hidden="true">
+      <path d="M8 2h20l12 12v34a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V6a4 4 0 0 1 4-4Z" fill="#f7f4ee" stroke="#22201c" stroke-opacity="0.22" stroke-width="1.25"/>
+      <path d="M28 2v9.5A2.5 2.5 0 0 0 30.5 14H40" fill="#efeae0" stroke="#22201c" stroke-opacity="0.22" stroke-width="1.25"/>
+      <path d="M12 24h20M12 30h16M12 36h12" stroke="#22201c" stroke-opacity="0.22" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <svg class="cursor" id="cursor" viewBox="0 0 18 24" aria-hidden="true">
+      <path d="M2 1.4 15.6 14.2l-5.3.4 3.15 7.2-2.7 1.15-3.2-7.15-4.35 3.7Z" fill="#22201c" stroke="#f5f1e8" stroke-width="1.1" stroke-linejoin="round"/>
+    </svg>
+    <div class="caption" id="caption">idle</div>
+    <button class="replay" id="replay" type="button">再看一遍</button>
+  </div>
+<script>
+/* v4：只用两只眼睛。去掉了会被看成「嘴」的东西：
+   1) 做完了的填充弯月「笑眼」（厚唇形，像两张小嘴）；
+   2) 写字/发亮时贴在眼下方的那条细光（正好在脸的嘴位）；
+   3) 岛上的「松手交给我」和睡熟的 z（文字，不是眼睛）。
+   完成改为细描边眼睑 ^ ^（闭眼缝，不是填实嘴唇）。
+   动法：弹簧 + 左右眼视差 + 挤压拉伸 + 不对称，参考助手头像的双眼，不抄 GPL。 */
+(function () {
+  const DURATION = 40;
+  const CX = { l: 46.05, r: 66.05 };
+  const CY = 15;
+  const DT = 1 / 120;
+  const LAG = 0.036; // 右眼注视落后，形成轻微视差
+
+  const island = document.getElementById("island");
+  const caption = document.getElementById("caption");
+  const cursor = document.getElementById("cursor");
+  const fileChip = document.getElementById("fileChip");
+  const replay = document.getElementById("replay");
+  const eyesSvg = document.getElementById("eyesSvg");
+  const gL = document.getElementById("gL");
+  const gR = document.getElementById("gR");
+  const pupilL = document.getElementById("pupilL");
+  const pupilR = document.getElementById("pupilR");
+  const lidL = document.getElementById("lidL");
+  const lidR = document.getElementById("lidR");
+
+  function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+  function lerp(a, b, u) { return a + (b - a) * u; }
+  function map(t, a, b, ease) {
+    const u = clamp((t - a) / ((b - a) || 1), 0, 1);
+    return ease ? ease(u) : u;
+  }
+  function easeOut(u) { return 1 - Math.pow(1 - u, 2.2); }
+  function easeIn(u) { return u * u; }
+  function damp(k, z) { return 2 * z * Math.sqrt(k); }
+
+  const K = {
+    sacc:  220, saccD:  damp(220, 0.55),
+    saccR: 190, saccRD: damp(190, 0.60), // 右眼稍软，跟上时带一点拖腔
+    shape: 120, shapeD: damp(120, 0.68),
+    lidC:  520, lidCD:  damp(520, 0.80),
+    lidO:  170, lidOD:  damp(170, 0.90),
+    smile: 260, smileD: damp(260, 0.70),
+    hop:   160, hopD:   damp(160, 0.52),
+    scale: 150, scaleD: damp(150, 0.62),
+  };
+
+  function body(x) { return { x: x, v: 0 }; }
+  function stepSpring(b, target, k, d, dt) {
+    const a = -k * (b.x - target) - d * b.v;
+    b.v += a * dt;
+    b.x += b.v * dt;
+  }
+  function makeEye() {
+    return {
+      x: body(0), y: body(0),
+      w: body(10.6), h: body(10.6),
+      up: body(0), lo: body(0),
+      smile: body(0),
+    };
+  }
+  function makeWorld() {
+    return {
+      hopped: false,
+      L: makeEye(), R: makeEye(),
+      islandY: body(0), islandX: body(0),
+      islandRot: body(0), islandScale: body(1),
+      eyesX: body(0),
+      t: 0,
+    };
+  }
+
+  const LABELS = [
+    { t: 0.00, name: "idle" },
+    { t: 4.40, name: "drowsy" },
+    { t: 8.00, name: "asleep" },
+    { t: 14.35, name: "wake" },
+    { t: 18.55, name: "expect" },
+    { t: 23.40, name: "read" },
+    { t: 28.30, name: "think" },
+    { t: 32.15, name: "write" },
+    { t: 36.50, name: "done" },
+  ];
+  function labelAt(t) {
+    let n = LABELS[0].name;
+    for (let i = 0; i < LABELS.length; i++) if (t >= LABELS[i].t) n = LABELS[i].name;
+    return n;
+  }
+
+  // 不同步眨眼：右眼总是晚一点
+  const BLINKS = [
+    { t0: 1.08, c: 0.068, o: 0.145, dR: 0.028 },
+    { t0: 1.36, c: 0.058, o: 0.140, dR: 0.032 }, // 连眨
+    { t0: 3.62, c: 0.070, o: 0.150, dR: 0.022 },
+    { t0: 6.50, c: 0.200, o: 0.280, dR: 0.040 },
+    { t0: 17.35, c: 0.072, o: 0.150, dR: 0.030 },
+    { t0: 21.15, c: 0.070, o: 0.145, dR: 0.024 },
+    { t0: 23.28, c: 0.075, o: 0.145, dR: 0.018 },
+    { t0: 25.10, c: 0.068, o: 0.140, dR: 0.026 },
+    { t0: 28.14, c: 0.075, o: 0.150, dR: 0.020 },
+    { t0: 32.00, c: 0.070, o: 0.145, dR: 0.022 },
+    { t0: 34.40, c: 0.060, o: 0.130, dR: 0.034 },
+  ];
+
+  function blinkLids(t, side) {
+    let up = 0, lo = 0, squash = 0;
+    for (let i = 0; i < BLINKS.length; i++) {
+      const b = BLINKS[i];
+      const t0 = b.t0 + (side === "R" ? b.dR : 0);
+      const t1 = t0 + b.c, t2 = t1 + b.o;
+      if (t < t0 || t > t2) continue;
+      let u;
+      if (t < t1) u = 1 - Math.pow(1 - (t - t0) / b.c, 1.6);
+      else {
+        const p = (t - t1) / b.o;
+        u = 1 - (p * p * (3 - 2 * p));
+      }
+      up = Math.max(up, 0.88 * u);
+      lo = Math.max(lo, 0.14 * u);
+      squash = Math.max(squash, 0.08 * u);
+    }
+    return { up, lo, squash };
+  }
+
+  // 待机注视轨迹（含预备、过冲由弹簧完成）
+  function idleGaze(t) {
+    let x = 0, y = 0;
+    if (t >= 0.45 && t < 0.95) { x = 1.1; y = -0.15; }
+    // 扫视前反向预备
+    else if (t >= 1.70 && t < 1.76) { x = 0.5; y = 0.1; }
+    else if (t >= 1.76 && t < 2.50) { x = -3.2; y = -0.2; }
+    else if (t >= 2.50 && t < 2.78) { x = 0; y = 0; }
+    else if (t >= 2.92 && t < 3.00) { x = -0.4; y = -0.15; }
+    else if (t >= 3.00 && t < 3.55) { x = 2.3; y = 1.35; }
+    else if (t >= 3.55 && t < 4.20) { x = 0; y = 0; }
+    // 固视微颤
+    if (t < 4.40) {
+      x += 0.13 * Math.sin(t * 27.3) + 0.08 * Math.sin(t * 41.1);
+      y += 0.09 * Math.sin(t * 23.7 + 1.2);
+    }
+    return { x, y };
+  }
+
+  function readGaze(t) {
+    const t0 = 23.72;
+    if (t < t0) return { x: 0, y: 4 };
+    const holds = [0.38, 0.42, 0.32, 0.48, 0.36, 0.44, 0.30];
+    const steps = [2.4, 2.1, 2.8, 2.2, 2.6, 2.3];
+    let acc = t0 + 0.35;
+    let x = -5;
+    if (t < acc) return { x: x, y: 4 };
+    for (let i = 0; i < steps.length; i++) {
+      if (t < acc + holds[i + 1]) {
+        if (t >= acc) x += steps[i];
+        if (x > 5) x = 5;
+        return { x, y: 4 };
+      }
+      x += steps[i];
+      acc += holds[i + 1];
+    }
+    return { x: 0, y: 4 };
+  }
+
+  function thinkGaze(t) {
+    // 先上翻，再左右来回扫
+    if (t < 29.05) return { x: 2.6, y: -3.1 };
+    if (t < 29.45) return { x: 0.2, y: -3.6 };
+    if (t < 30.10) return { x: -2.8, y: -2.8 };
+    if (t < 30.70) return { x: 2.9, y: -3.2 };
+    if (t < 31.30) return { x: -1.6, y: -3.0 };
+    return { x: 1.8, y: -3.2 };
+  }
+
+  const FILE_PATH = [
+    { t: 13.70, x: 1080, y: 430 },
+    { t: 15.10, x: 920,  y: 390 },
+    { t: 17.55, x: 900,  y: 400 },
+    { t: 18.55, x: 980,  y: 500 },
+    { t: 20.55, x: 880,  y: 410 },
+    { t: 21.25, x: 870,  y: 395 },
+    { t: 23.15, x: 840,  y: 405 },
+    { t: 23.50, x: 940,  y: 470 },
+  ];
+  function pathAt(t, pts) {
+    if (t < pts[0].t) return { x: pts[0].x, y: pts[0].y, on: false };
+    if (t >= pts[pts.length - 1].t) return { x: pts[pts.length - 1].x, y: pts[pts.length - 1].y, on: false };
+    for (let i = 0; i < pts.length - 1; i++) {
+      if (t >= pts[i].t && t < pts[i + 1].t) {
+        const u = (t - pts[i].t) / (pts[i + 1].t - pts[i].t);
+        const s = u * u * (3 - 2 * u);
+        return { x: lerp(pts[i].x, pts[i + 1].x, s), y: lerp(pts[i].y, pts[i + 1].y, s), on: true };
+      }
+    }
+    return { x: pts[0].x, y: pts[0].y, on: false };
+  }
+
+  function fileLook(t) {
+    if (t < 13.70 || t > 23.40) return null;
+    const p = pathAt(t, FILE_PATH);
+    // 把屏幕坐标粗略映到眼位，幅度限制在岛内
+    const x = clamp((p.x - 640) / 90, -4.5, 4.5);
+    const y = clamp((p.y - 200) / 80, -2.5, 3.2);
+    return { x, y };
+  }
+
+  function targetsAt(t) {
+    const T = clamp(t, 0, DURATION);
+    let wL = 10.6, hL = 10.6, wR = 10.6, hR = 10.6;
+    let xL = 0, yL = 0, xR = 0, yR = 0;
+    let upL = 0, loL = 0, upR = 0, loR = 0;
+    let smileL = 0, smileR = 0;
+    let islandY = 0, islandX = 0, islandRot = 0, islandScale = 1;
+    let width = 112, eyesX = 0;
+    let hopImpulse = 0;
+    let shiver = false;
+    let applyLag = true;
+
+    // ----- idle：四处看，左右略不同步 -----
+    if (T < 4.40) {
+      const gL = idleGaze(T);
+      const gR = idleGaze(T - LAG);
+      xL = gL.x; yL = gL.y;
+      xR = gR.x; yR = gR.y;
+      applyLag = false;
+      // 3.15 起左眼略抬、右眼略落，一点歪头感
+      if (T >= 3.00 && T < 3.55) {
+        const u = map(T, 3.00, 3.18, easeOut) * (1 - map(T, 3.40, 3.55));
+        yL -= 0.7 * u;
+        yR += 0.35 * u;
+        wL = lerp(10.6, 9.8, u); hL = lerp(10.6, 11.2, u);
+        wR = lerp(10.6, 11.4, u); hR = lerp(10.6, 10.0, u);
+      }
+    }
+
+    // ----- drowsy：左眼先垂，再变成下半圆 -----
+    if (T >= 4.40 && T < 8.00) {
+      const uL = map(T, 4.40, 5.55);
+      const uR = map(T, 4.70, 5.85);
+      upL = lerp(0, 0.50, uL);
+      upR = lerp(0, 0.50, uR);
+      yL = lerp(0, 0.40, uL);
+      yR = lerp(0, 0.30, uR);
+      xL = -0.4; xR = 0.25;
+      hL = lerp(10.6, 10.0, uL);
+    }
+
+    // ----- asleep：上下睑对合成缝，两眼略不齐 -----
+    if (T >= 8.00 && T < 14.50) {
+      const u = map(T, 8.00, 9.20, easeOut);
+      upL = lerp(0.50, 0.41, u);
+      loL = lerp(0.00, 0.37, u);
+      upR = lerp(0.50, 0.38, u);
+      loR = lerp(0.00, 0.34, u);
+      wL = lerp(10.6, 10.0, u);
+      wR = lerp(10.6, 11.0, u);
+      yL = 0.25; yR = 0.1;
+      if (T >= 9.15) {
+        const br = 0.5 - 0.5 * Math.cos(((T - 9.15) / 4.5) * Math.PI * 2);
+        islandY += br * 0.22;
+      }
+    }
+
+    // ----- wake：先睁一只，再大小眼乱看一下，发抖 -----
+    if (T >= 14.50 && T < 18.35) {
+      const leftOpen = map(T, 14.58, 15.20, easeOut);
+      const rightOpen = map(T, 15.48, 16.22, easeOut);
+      const both = map(T, 16.28, 17.05, easeOut);
+      const lUp1 = lerp(0.41, 0.50, leftOpen);
+      const lLo1 = lerp(0.37, 0.00, leftOpen);
+      upL = lerp(lUp1, 0, both);
+      loL = lerp(lLo1, 0, both);
+      wL = hL = lerp(lerp(10.0, 7.6, leftOpen), 10.6, both);
+      yL = lerp(lerp(0.25, 0.55, leftOpen), 0, both);
+      if (rightOpen <= 0) {
+        upR = 0.38; loR = 0.34; wR = hR = 11.0;
+        yR = 0.1;
+      } else {
+        upR = lerp(0.38, 0, Math.min(1, rightOpen * 1.0));
+        loR = lerp(0.34, 0, Math.min(1, rightOpen * 2.2));
+        wR = hR = lerp(11.0, 13.2, rightOpen);
+        yR = lerp(0.1, -0.45, rightOpen);
+      }
+      wR = lerp(wR, 10.6, both);
+      hR = lerp(hR, 10.6, both);
+      yR = lerp(yR, 0, both);
+      upR = lerp(upR, 0, both);
+      loR = lerp(loR, 0, both);
+      // 醒后迷糊地扫两眼
+      if (T >= 16.95 && T < 18.30) {
+        const g = (T < 17.45) ? { x: -2.6, y: 0.8 } : (T < 17.95) ? { x: 2.4, y: -0.5 } : { x: 0, y: 0 };
+        const fade = 1 - map(T, 18.05, 18.30);
+        xL += g.x * fade; yL += g.y * fade;
+        xR += (T - LAG >= 16.95 ? g.x : g.x * 0.6) * fade;
+        yR += g.y * 0.85 * fade;
+        if (T < 17.6) { wL = lerp(wL, 9.4, fade); wR = lerp(wR, 12.0, fade); hR = lerp(hR, 12.2, fade); }
+      }
+    }
+    if (T >= 16.70 && T < 17.40) shiver = true;
+
+    // ----- expect：睁大追文件，略一大一小 -----
+    const expEye = map(T, 18.55, 18.70, easeOut);
+    const expOut = 1 - map(T, 23.10, 23.30, easeIn);
+    if (T >= 18.55 && T < 23.35) {
+      const kEye = expEye * (T < 23.10 ? 1 : expOut);
+      wL = hL = lerp(10.6, 12.8, kEye);
+      wR = hR = lerp(10.6, 13.8, kEye);
+      upL = loL = upR = loR = 0;
+      const fl = fileLook(T);
+      if (fl) {
+        xL = fl.x; yL = fl.y;
+        const flR = fileLook(T - LAG) || fl;
+        xR = flR.x; yR = flR.y;
+        applyLag = false;
+      }
+      if (T >= 18.55 && T < 18.90) islandScale = 1.05;
+      const expand = map(T, 19.05, 19.29, easeOut) * (T < 23.10 ? 1 : expOut);
+      width = lerp(112, 158, expand);
+      eyesX = lerp(0, -28, expand);
+    }
+
+    // ----- read：扫视带视差，每跳一下眼睛略挤 -----
+    let readBeat = 0;
+    if (T >= 23.40 && T < 28.30) {
+      wL = 9.6; hL = 5.8;
+      wR = 10.4; hR = 6.2;
+      const gL = readGaze(T);
+      const gR = readGaze(T - 0.028);
+      xL = gL.x; yL = gL.y;
+      xR = gR.x; yR = gR.y;
+      applyLag = false;
+      upL = 0.11; upR = 0.08;
+      // 每次跳视给一点节奏起伏
+      const phase = (T - 23.72) % 0.72;
+      if (T >= 23.72 && phase < 0.14) {
+        readBeat = Math.sin((phase / 0.14) * Math.PI) * 0.7;
+        islandY -= readBeat;
+        hL -= readBeat * 0.35;
+        hR -= readBeat * 0.25;
+      }
+    }
+
+    // ----- think：上翻 + 一大一小 + 来回扫 + 一只更眯、略歪 -----
+    if (T >= 28.30 && T < 32.15) {
+      const unev = map(T, 28.50, 28.95, easeOut);
+      const gL = thinkGaze(T);
+      const gR = thinkGaze(T - 0.04);
+      xL = gL.x; yL = gL.y;
+      xR = gR.x; yR = gR.y;
+      applyLag = false;
+      wL = hL = lerp(9.2, 9.2 * 0.70, unev);
+      wR = hR = lerp(9.2, 9.2 * 1.30, unev);
+      upL = lerp(0, 0.16, unev);
+      upR = 0;
+      islandRot = lerp(0, -3.2, unev);
+      yL -= 0.25 * unev;
+      yR += 0.15 * unev;
+    }
+
+    // ----- write：低头看，跟着节奏小跳，左眼更眯 -----
+    if (T >= 32.15 && T < 36.50) {
+      wL = 10.4; hL = 7.6;
+      wR = 11.6; hR = 8.6;
+      yL = 1.35; yR = 1.05;
+      xL = -0.3; xR = 0.5;
+      upL = 0.12; upR = 0.05;
+      if (T >= 32.40) {
+        const beat = Math.sin((T - 32.40) * 6.0);
+        const kick = Math.max(0, beat);
+        islandY -= kick * 1.15;
+        islandRot = beat * 0.9;
+        hL -= kick * 0.55;
+        hR -= kick * 0.4;
+        wL += kick * 0.35;
+        wR += kick * 0.25;
+      }
+      // 中段瞥一眼旁边再回来
+      if (T >= 33.80 && T < 34.25) {
+        const u = map(T, 33.80, 33.92, easeOut) * (1 - map(T, 34.08, 34.25));
+        xL += 2.4 * u; xR += 2.1 * u;
+        yL -= 0.6 * u; yR -= 0.4 * u;
+      }
+    }
+
+    // ----- done：睁大（略一大一小）再收成细描边 ^ ^ 眼睑，轻跳 -----
+    if (T >= 36.50) {
+      const pop = map(T, 36.50, 36.70, easeOut);
+      const hold = T >= 36.70 && T < 36.88;
+      const settle = map(T, 36.88, 37.18, easeOut);
+      if (T < 36.88) {
+        const k = hold ? 1 : pop;
+        wL = hL = lerp(10.6, 12.8, k);
+        wR = hR = lerp(10.6, 14.2, k);
+        yL = lerp(1.2, -0.15, k);
+        yR = lerp(1.0, 0.15, k);
+        xL = lerp(-0.3, -0.2, k);
+        xR = lerp(0.5, 0.25, k);
+        upL = loL = upR = loR = 0;
+        smileL = smileR = 0;
+      } else {
+        smileL = smileR = settle;
+        wL = lerp(12.8, 10.2, settle);
+        hL = lerp(12.8, 3.0, settle);
+        wR = lerp(14.2, 10.8, settle);
+        hR = lerp(14.2, 3.2, settle);
+        yL = -0.1; yR = 0.15;
+        xL = -0.15; xR = 0.2;
+        if (T >= 37.12 && T < 37.15) hopImpulse = -125;
+      }
+    }
+
+    // 眨眼叠上（睡熟、醒来前半段不叠）
+    const canBlink = !((T >= 8.00 && T < 14.55) || (T >= 14.50 && T < 16.20));
+    if (canBlink) {
+      const bL = blinkLids(T, "L");
+      const bR = blinkLids(T, "R");
+      upL = Math.max(upL, bL.up); loL = Math.max(loL, bL.lo);
+      upR = Math.max(upR, bR.up); loR = Math.max(loR, bR.lo);
+      wL *= 1 + bL.squash; wR *= 1 + bR.squash;
+    }
+
+    // 歪头感：眼睛一高一低时整岛轻轻跟一下（完成跳跃时不抢）
+    if (!hopImpulse && T < 36.92 || T >= 37.6) {
+      const tilt = clamp((yL - yR) * 1.15, -3.8, 3.8);
+      if (Math.abs(tilt) > Math.abs(islandRot)) islandRot = tilt;
+    }
+
+    // 光标 + 文件（场景，不是五官）
+    let curOp = 0, curX = 900, curY = 260;
+    let fileOp = 0, fileX = 880, fileY = 280, fileS = 1, fileRot = -8;
+    if (T >= 13.65 && T < 23.55) {
+      const p = pathAt(T, FILE_PATH);
+      curOp = (T < 13.80) ? map(T, 13.65, 13.80) : (T > 23.40 ? 1 - map(T, 23.40, 23.55) : 1);
+      curX = p.x; curY = p.y;
+      fileOp = curOp;
+      fileX = p.x - 6; fileY = p.y + 14;
+      if (T >= 21.20 && T < 23.20) fileS = lerp(1, 0.92, map(T, 21.20, 23.15));
+      if (T >= 23.15) { fileOp *= 1 - map(T, 23.15, 23.45); fileS = 0.7; }
+    }
+
+    return {
+      wL, hL, wR, hR, xL, yL, xR, yR, upL, loL, upR, loR, smileL, smileR,
+      islandY, islandX, islandRot, islandScale, width, eyesX,
+      hopImpulse, shiver,
+      curOp, curX, curY, fileOp, fileX, fileY, fileS, fileRot,
+      caption: labelAt(T),
+    };
+  }
+
+  let world = makeWorld();
+  function resetWorld() { world = makeWorld(); }
+
+  function stepWorld(dt, tgt) {
+    const w = world;
+    stepSpring(w.L.x, tgt.xL, K.sacc, K.saccD, dt);
+    stepSpring(w.L.y, tgt.yL, K.sacc, K.saccD, dt);
+    stepSpring(w.R.x, tgt.xR, K.saccR, K.saccRD, dt);
+    stepSpring(w.R.y, tgt.yR, K.saccR, K.saccRD, dt);
+    stepSpring(w.L.w, tgt.wL, K.shape, K.shapeD, dt);
+    stepSpring(w.L.h, tgt.hL, K.shape, K.shapeD, dt);
+    stepSpring(w.R.w, tgt.wR, K.shape, K.shapeD, dt);
+    stepSpring(w.R.h, tgt.hR, K.shape, K.shapeD, dt);
+    const closing = (tgt.upL + tgt.upR) > (w.L.up.x + w.R.up.x + 0.05);
+    const lidK = closing ? K.lidC : K.lidO;
+    const lidD = closing ? K.lidCD : K.lidOD;
+    stepSpring(w.L.up, tgt.upL, lidK, lidD, dt);
+    stepSpring(w.L.lo, tgt.loL, lidK, lidD, dt);
+    stepSpring(w.R.up, tgt.upR, lidK, lidD, dt);
+    stepSpring(w.R.lo, tgt.loR, lidK, lidD, dt);
+    stepSpring(w.L.smile, tgt.smileL, K.smile, K.smileD, dt);
+    stepSpring(w.R.smile, tgt.smileR, K.smile, K.smileD, dt);
+    if (tgt.hopImpulse && !w.hopped) { w.islandY.v += tgt.hopImpulse; w.hopped = true; }
+    if (tgt.shiver) {
+      const u = clamp((w.t - 16.70) / 0.70, 0, 1);
+      const amp = 2.5 * (1 - u);
+      w.islandX.x = Math.sin(u * Math.PI * 7) * amp + Math.sin(u * Math.PI * 11) * amp * 0.35;
+      w.islandRot.x = Math.sin(u * Math.PI * 7 + 0.4) * 2.0 * (1 - u);
+    } else {
+      stepSpring(w.islandX, tgt.islandX, K.hop, K.hopD, dt);
+      stepSpring(w.islandRot, tgt.islandRot, K.shape, K.shapeD, dt);
+    }
+    stepSpring(w.islandY, tgt.islandY, K.hop, K.hopD, dt);
+    stepSpring(w.islandScale, tgt.islandScale, K.scale, K.scaleD, dt);
+    stepSpring(w.eyesX, tgt.eyesX, K.shape, K.shapeD, dt);
+    w.t += dt;
+  }
+
+  function simulateTo(t) {
+    const target = clamp(t, 0, DURATION);
+    if (target < world.t - 1e-6) resetWorld();
+    let guard = 0;
+    while (world.t < target - 1e-9 && guard++ < 20000) {
+      const dt = Math.min(DT, target - world.t);
+      stepWorld(dt, targetsAt(world.t + dt * 0.5));
+    }
+    return targetsAt(target);
+  }
+
+  function applyEye(g, pupil, lidEl, eye, restX) {
+    const vx = eye.x.v, vy = eye.y.v;
+    const spd = Math.sqrt(vx * vx + vy * vy);
+    const amt = clamp(spd * 0.014, 0, 0.16);
+    const sx = 1 + amt * (Math.abs(vx) >= Math.abs(vy) ? 1 : -0.65);
+    const sy = 1 + amt * (Math.abs(vy) > Math.abs(vx) ? 1 : -0.65);
+    const w = Math.max(0.4, eye.w.x);
+    const h = Math.max(0.4, eye.h.x);
+    const up = clamp(eye.up.x, 0, 0.92);
+    const lo = clamp(eye.lo.x, 0, 0.92);
+    const sm = clamp(eye.smile.x, 0, 1);
+    const cx = restX + eye.x.x;
+    const cy = CY + eye.y.x;
+    g.setAttribute("transform",
+      "translate(" + cx.toFixed(3) + " " + cy.toFixed(3) + ") scale(" +
+      sx.toFixed(4) + " " + sy.toFixed(4) + ")");
+    pupil.setAttribute("rx", (w / 2).toFixed(3));
+    pupil.setAttribute("ry", (h / 2).toFixed(3));
+    // 不交叉淡化，避免半透明奶油色发灰；^ ^ 是细描边眼睑，不是填实嘴唇
+    if (sm < 0.42) {
+      pupil.setAttribute("opacity", "1");
+      lidEl.setAttribute("opacity", "0");
+    } else {
+      pupil.setAttribute("opacity", "0");
+      lidEl.setAttribute("opacity", "1");
+    }
+    if (up > 0.015 || lo > 0.015) {
+      pupil.style.clipPath = "inset(" + (up * 100).toFixed(2) + "% 0 " + (lo * 100).toFixed(2) + "% 0)";
+    } else {
+      pupil.style.clipPath = "none";
+    }
+  }
+
+  function render(tgt) {
+    const w = world;
+    applyEye(gL, pupilL, lidL, w.L, CX.l);
+    applyEye(gR, pupilR, lidR, w.R, CX.r);
+    island.style.width = tgt.width + "px";
+    island.style.marginLeft = (-tgt.width / 2) + "px";
+    island.style.transform =
+      "translate(" + w.islandX.x.toFixed(3) + "px," + w.islandY.x.toFixed(3) + "px) rotate(" +
+      w.islandRot.x.toFixed(3) + "deg) scale(" + w.islandScale.x.toFixed(4) + ")";
+    eyesSvg.style.transform = "translateX(" + w.eyesX.x.toFixed(3) + "px)";
+    caption.textContent = tgt.caption;
+    cursor.style.opacity = String(tgt.curOp);
+    cursor.style.transform = "translate(" + tgt.curX + "px," + tgt.curY + "px)";
+    fileChip.style.opacity = String(tgt.fileOp);
+    fileChip.style.transform =
+      "translate(" + tgt.fileX + "px," + tgt.fileY + "px) rotate(" + tgt.fileRot + "deg) scale(" + tgt.fileS + ")";
+  }
+
+  function apply(t) { render(simulateTo(t)); }
+
+  window.__setTime = function (t) { playing = false; apply(t); };
+  window.__DURATION = DURATION;
+
+  let playing = true, start = 0, raf = 0;
+  const params = new URLSearchParams(location.search);
+  const record = params.get("mode") === "record";
+  const tParam = parseFloat(params.get("t"));
+
+  function loop(now) {
+    if (!playing) return;
+    if (!start) start = now;
+    const t = (now - start) / 1000;
+    if (t >= DURATION) {
+      apply(DURATION);
+      playing = false;
+      if (!record) replay.classList.add("show");
+      return;
+    }
+    apply(t);
+    raf = requestAnimationFrame(loop);
+  }
+  function playFromStart() {
+    resetWorld();
+    playing = true;
+    start = 0;
+    replay.classList.remove("show");
+    cancelAnimationFrame(raf);
+    raf = requestAnimationFrame(loop);
+  }
+  replay.addEventListener("click", playFromStart);
+  window.addEventListener("keydown", function (e) {
+    if (e.code === "Space") { e.preventDefault(); playFromStart(); }
+  });
+
+  if (record || !isNaN(tParam)) {
+    playing = false;
+    apply(isNaN(tParam) ? 0 : tParam);
+  } else {
+    playFromStart();
+  }
+})();
+</script>
+</body>
+</html>
