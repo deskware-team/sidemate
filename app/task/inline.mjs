@@ -1,5 +1,5 @@
 // 回话里的行内格式：只认 **粗体**（三个以上星号包住的也当粗体，不露星号）、`代码`、
-// # 标题、- 列表这几样。
+// 行内公式（\(...\) 和 $...$）、# 标题、- 列表这几样。
 // 别的（链接、图片、表格、引用、斜体）都当普通字，不解析。
 // 纯函数：进一段字，出一批片段，页面那边只管建节点，不碰 HTML。
 
@@ -7,6 +7,43 @@
 const HEADING = /^([ \t]*)(#{1,6})[ \t]+(.*)$/
 // 行首缩进留着、- * + 换成 ·
 const BULLET = /^([ \t]*)([-*+])[ \t]+(.*)$/
+
+// 行内公式：\(...\) 和 $...$。从 from 起找，找不到就返回 null（照普通字）。
+// $ 有三条规矩（防误伤价格）：开头的 $ 后面不能是空格；结尾的 $ 前面不能是空格；
+// 结尾的 $ 后面不能紧跟数字。所以「花了 $5 和 $10」不算公式。
+// 代码里的不算：反引号那一段在 inline() 里先被吃掉了，根本到不了这里。
+export function findMath(text, from) {
+  const src = String(text ?? '')
+  const ch = src[from]
+  if (ch === '\\' && src[from + 1] === '(') {
+    const close = src.indexOf('\\)', from + 2)
+    if (close === -1) return null
+    const inner = src.slice(from + 2, close)
+    if (!inner.trim()) return null
+    return { text: inner, end: close + 2 }
+  }
+  if (ch !== '$') return null
+  // $$...$$：成对的两个
+  if (src[from + 1] === '$') {
+    const close = src.indexOf('$$', from + 2)
+    if (close === -1) return null
+    const inner = src.slice(from + 2, close)
+    if (!inner.trim()) return null
+    return { text: inner, end: close + 2 }
+  }
+  // 开头的 $ 后面不能是空格
+  const first = src[from + 1]
+  if (first === undefined || /\s/.test(first)) return null
+  for (let i = from + 1; i < src.length; i += 1) {
+    if (src[i] !== '$') continue
+    if (/\s/.test(src[i - 1])) continue // 结尾的 $ 前面不能是空格
+    if (src[i + 1] !== undefined && /[0-9]/.test(src[i + 1])) continue // 结尾的 $ 后面不能紧跟数字
+    const inner = src.slice(from + 1, i)
+    if (!inner.trim()) continue
+    return { text: inner, end: i + 1 }
+  }
+  return null
+}
 
 // 从 from 起这串连续星号有几个
 const starRun = (text, from) => {
@@ -39,6 +76,15 @@ function inline(text, boldBase) {
       buf += ch
       i += 1
       continue
+    }
+    if (ch === '$' || (ch === '\\' && text[i + 1] === '(')) {
+      const hit = findMath(text, i)
+      if (hit) {
+        flush()
+        out.push({ text: hit.text, bold: false, code: false, math: true })
+        i = hit.end
+        continue
+      }
     }
     if (ch === '*') {
       const open = starRun(text, i)

@@ -15,6 +15,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createRetryWatcher } from './retry-log.mjs'
+import { createStreamWatcher } from './stream-plugin.mjs'
 import { isCrashLoop, TAIL_LINES, writeCrashLog } from './crash-log.mjs'
 import { appPaths } from '../paths.mjs'
 
@@ -171,6 +172,7 @@ export function createDaemon({ build, onLog, keepAlive: keep = false, key = '' }
   let leases = 0
   let idleTimer = null
   let watcher = null
+  let streamWatcher = null
   let pendingRestart = false
   let configStamp = 0 // 热加载刷新的次数：写完配置等它报一声就知道热加载有没有成
   let restartTimer = null
@@ -253,6 +255,8 @@ export function createDaemon({ build, onLog, keepAlive: keep = false, key = '' }
     pending.clear()
     watcher?.stop()
     watcher = null
+    streamWatcher?.stop()
+    streamWatcher = null
     for (const one of sessions.values()) {
       try {
         one.onCrash?.({ loop, exitCode, signal, detail: detail.detail || 'exit' })
@@ -286,6 +290,9 @@ export function createDaemon({ build, onLog, keepAlive: keep = false, key = '' }
   }
 
   const onMessage = (message) => {
+    // 逐字流的文件先读一把再派这条消息：dsh 那头字先落文件、话后到 ACP，
+    // 不先读的话前缀会落到这一段的后面（气泡就串行了）
+    streamWatcher?.poll?.()
     if (message.method === 'session/update') {
       const params = message.params || {}
       const one = sessions.get(String(params.sessionId || ''))
@@ -381,6 +388,14 @@ export function createDaemon({ build, onLog, keepAlive: keep = false, key = '' }
         onEvent: (info) => {
           const one = sessions.get(String(info.sessionId || ''))
           one?.onRetry?.(info)
+        },
+      })
+      // 逐字流：同一个读法，流式文件里每行带会话号，按会话转给这一轮注册的回调
+      streamWatcher = createStreamWatcher({
+        path: launch.streamFile,
+        onEvent: (info) => {
+          const one = sessions.get(String(info.sessionId || ''))
+          one?.onStream?.(info)
         },
       })
       init = await request('initialize', {
@@ -508,6 +523,8 @@ export function createDaemon({ build, onLog, keepAlive: keep = false, key = '' }
     }
     watcher?.stop()
     watcher = null
+    streamWatcher?.stop()
+    streamWatcher = null
     // 桌伴主动收的：还在跑的会话先按设置变化中断收场，再拒掉没回包的请求
     if (reason === 'settings') interruptSessions()
     sessions.clear()

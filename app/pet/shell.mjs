@@ -3,17 +3,20 @@
 // 完整路径在 preload 里用 webUtils.getPathForFile 拿。
 
 import { app, BrowserWindow, Menu, Notification, Tray, ipcMain, screen, shell, systemPreferences } from 'electron'
-import { appendFileSync, existsSync } from 'node:fs'
+import { appendFileSync } from 'node:fs'
+import { cpus } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bubbleOf, elapsedText } from './bubble.mjs'
 import { cubicBezier } from './ease.mjs'
 import { petMenuTemplate, trayMenuTemplate } from './menu.mjs'
+import { recentMenu } from './recent-menu.mjs'
 import { applyOnTop, createOnTop, onTopFromPlace } from './on-top.mjs'
 import { createRecaller } from './recall.mjs'
 import { readPlace, writePlace } from './place-store.mjs'
 import { createExpect } from './expect.mjs'
 import { watchNear } from './near.mjs'
+import { watchBusy } from './busy.mjs'
 import { trayIcon } from './tray-icon.mjs'
 import { coversDisplay, watchForeground } from './foreground.mjs'
 import { INTRO_LINE, introAlive, introTiming } from './intro.mjs'
@@ -27,10 +30,9 @@ import { theme, applyFont, bubbleBoxWidth } from './theme.mjs'
 import { BASE, visibleStripHeight } from './layout.mjs'
 import { currentDisplay, onDisplay } from '../main/display.mjs'
 import { menuOpen, trackMenu } from '../main/menu-state.mjs'
-import { appPaths, appRoot, dataPaths, ensureDataDir } from '../paths.mjs'
+import { dataPaths, ensureDataDir } from '../paths.mjs'
 import { t } from '../copy/copy.mjs'
 import { todayString } from '../news/topics.mjs'
-import { recentMenuTemplate, recentTasks } from '../task/recent-tasks.mjs'
 import { iconPath } from '../assets/icon.mjs'
 import { startTestHook } from './test-hook.mjs'
 
@@ -53,6 +55,8 @@ let relayoutTask = () => {}
 let recaller = null
 let stopHook = () => {}
 let nearWatch = { sync: () => {}, stop: () => {} }
+// 忙不忙：整机 CPU 连续 10 秒高位算忙，变了才发 pet:busy（小岛收着装饰小动作）
+let busyWatch = null
 // 接文件·期待：进来先弹一下等 250ms 再张托；拖走取消；这 250ms 里松手直接处理
 let expectTray = { enter: () => {}, leave: () => {}, drop: () => {}, stop: () => {} }
 // 早报入口：菜单数据和未读在 newsEntry（壳传进来），红点亮不亮这边记
@@ -106,8 +110,26 @@ function artifactName() {
 
 function push() {
   const artifact = artifactName()
-  send('pet:state', { mode: state.mode, message: state.message, artifact })
+  // 点了「立即生成」的新闻在跑、手头没别的事：小岛做出干活的样子，冒「在找「…」的新闻…」。
+  // 有任务在跑（或者停在要你看的几种状态）时以任务为准，新闻的不盖任务
+  if (newsWorkingName && state.mode === 'idle') {
+    send('pet:state', { mode: 'work', message: '', artifact: '', phase: '' })
+    send('pet:bubble', { text: t('island.newsWorking', { name: newsWorkingName }), actions: [] })
+    return
+  }
+  send('pet:state', { mode: state.mode, message: state.message, artifact, phase: state.phase || '' })
   send('pet:bubble', bubbleOf({ ...state, artifact, news: newsDot, elapsed: elapsedText(workSince ? Date.now() - workSince : 0) }))
+}
+
+// 手动生成的新闻在跑：name 是那个主题的名字；跑完了给空串，小岛回到原来的样子
+let newsWorkingName = ''
+function setNewsWorking(name) {
+  const next = String(name ?? '')
+  if (next === newsWorkingName) return
+  newsWorkingName = next
+  push()
+  // 看你（眼睛跟着鼠标）只在待命时开：干活的样子时停掉，跑完了再开
+  nearWatch?.sync?.()
 }
 
 // 有新早报的红点：有没看的早报、且用户手头没在干活才亮；正在干活的先等，
@@ -157,7 +179,7 @@ const stillNow = () => Date.now() - stillCheckedAt > 2000
   ? (stillCheckedAt = Date.now(), stillChecked = stillMotion())
   : stillChecked
 const nearActive = () => Boolean(pet && !pet.isDestroyed() && pet.isVisible())
-  && !dragging && !introBusy && state.mode === 'idle'
+  && !dragging && !introBusy && state.mode === 'idle' && !newsWorkingName
   && (scene === 'strip' || scene === 'expanded') && !stillNow()
 
 function apply(event) {
@@ -171,6 +193,7 @@ function apply(event) {
   // 用户手头的活干完了：等着的新早报这会儿才亮
   syncNewsDot()
   nearWatch.sync()
+  busyWatch?.sync()
 }
 
 // 用户点开小岛 / 任务窗打开：做完了、要你看一眼、没干成这三种收回去，回待命
@@ -280,18 +303,7 @@ function collapse() {
 
 function showMenu() {
   log('menu-open')
-  const root = appRoot(), all = appPaths().tasks
-  const recent = recentMenuTemplate(
-    // 删掉、挪走了的文件夹不列
-    recentList().filter((dir) => existsSync(dir)).map((dir) => ({ dir, name: basename(dir) })),
-    recentTasks(root),
-    existsSync(all) ? all : '',
-    {
-      openFolder: (dir) => { log('menu', { item: 'recent', dir }); taskOpened({ recent: dir }) },
-      openTask: (out) => { log('menu', { item: 'recent-task', dir: out }); void shell.openPath(out) },
-      openAll: (dir) => { log('menu', { item: 'all-tasks', dir }); void shell.openPath(dir) },
-    },
-  )
+  const recent = recentMenu({ recentList, log, taskOpened })
   // 菜单开着的时候任务窗别往最前面提（见 app/main/menu-state.mjs）
   trackMenu(Menu.buildFromTemplate(petMenuTemplate({
     recent,
@@ -408,7 +420,7 @@ function createWindow() {
   // 别的置顶窗一被激活，小岛就被压下去：窗口自己动的时候再说一遍层级
   pet.on('focus', refreshTop)
   // 露脸：页面里的定时器重新排，看你的轮询也重新开
-  pet.on('show', () => { refreshTop(); send('pet:shown', { shown: true }); nearWatch.sync() })
+  pet.on('show', () => { refreshTop(); send('pet:shown', { shown: true }); nearWatch.sync(); busyWatch?.sync() })
   log('start', { bounds: pet.getBounds(), scene })
 }
 
@@ -532,10 +544,23 @@ function bind() {
       font: theme.font,
       mode: state.mode,
       message: state.message,
+      phase: state.phase || '',
       scene,
       news: newsDot,
+      busy: Boolean(busyWatch?.busy),
       bubble: bubbleOf({ ...state, artifact, news: newsDot }),
     }
+  })
+  ipcMain.on('pet:jank', (_event, payload) => {
+    // 卡了一下（小岛动画掉帧）：只记状态，不记用户内容
+    log('jank', {
+      gapMs: Math.round(Number(payload?.gapMs) || 0),
+      pose: String(payload?.pose ?? ''),
+      mode: String(payload?.mode ?? ''),
+      sleep: String(payload?.sleep ?? ''),
+      waking: payload?.waking === true,
+      scene: String(payload?.scene ?? ''),
+    })
   })
   ipcMain.on('pet:hover', () => {
     if (introBusy) return
@@ -712,6 +737,12 @@ export function startPet(options) {
     active: nearActive,
     send: (plan) => send('pet:near', plan),
   })
+  // 忙不忙：小岛看得见时每 2 秒采一次整机 CPU，高位连续 10 秒算忙，变了才发 pet:busy
+  busyWatch = watchBusy({
+    sample: () => cpus(),
+    active: () => Boolean(pet && !pet.isDestroyed() && pet.isVisible()),
+    send: (payload) => send('pet:busy', payload),
+  })
   // 接文件·期待：张托前先弹一下那一摊（决定在 expect.mjs）
   expectTray = createExpect({
     send,
@@ -770,6 +801,7 @@ export function startPet(options) {
     clearIntroTimers()
     stopScaleWatch()
     nearWatch.stop()
+    busyWatch?.stop()
     expectTray.stop()
     stopWatch?.()
     stopHook?.()
@@ -792,7 +824,8 @@ export function startPet(options) {
   // clearHeld：任务窗打开了，小岛那三种状态收回去，回待命
   // refreshTop：任务窗收起来了，小岛再说一遍层级
   // newsAlert(pending)：有没看的早报在等（壳那边算好传进来），这边管红点什么时候亮
-  return { ingest: apply, playIntro, getState: () => state, anchor, clearHeld: resetHeld, refreshTop, newsAlert: setNewsAlert }
+  // newsWorking(name)：手动生成的新闻在跑（name 是主题名，跑完给空串）
+  return { ingest: apply, playIntro, getState: () => state, anchor, clearHeld: resetHeld, refreshTop, newsAlert: setNewsAlert, newsWorking: setNewsWorking }
 }
 
 // 有没看的早报来了 / 都看完了：亮不亮红点在这里定（正在干活的等活干完）

@@ -10,7 +10,7 @@
 // 这几个文件的写法：
 //   每条上面一行注释，说清在哪、什么情况出现。
 //   {name} 这种是程序填进去的内容（文件名、秒数……），括号里的名字别改。
-//   "@St401" 表示和 St401 是同一句。
+//   "@St407" 表示和 St407 是同一句。
 //   字用双引号，最后一条后面不加逗号：Python 脚本也读这几个文件（./copy.py）。
 //
 // 这个文件本身页面和主进程都用：不引 node: 也不引 electron（页面只许加载自己目录下的脚本）。
@@ -28,7 +28,7 @@ export const BOOKS = { errors, status, harness, 'ui-desk': uiDesk, 'ui-settings'
 // 顶层的键在几份之间不许重名：合成一份查
 const ALL = Object.assign({}, ...Object.values(BOOKS))
 
-// 「跟 St401 同一句」：整句写成 @键
+// 「跟 St407 同一句」：整句写成 @键
 const REF = /^@([\w.]+)$/
 // 变量：{name}、{left}；{ } 和 { "summary" … } 这种不是变量
 const VAR = /\{([A-Za-z][A-Za-z0-9]*)\}/g

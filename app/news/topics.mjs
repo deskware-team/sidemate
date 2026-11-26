@@ -1,9 +1,10 @@
 // 新闻主题存取：主题怎么写、存哪、报过的怎么记。
 // 纯 node 模块，不带界面，也不负责抓内容——找链接在 links.mjs，排期在 schedule.mjs。
 
-import { mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
+import { localName } from './name.mjs'
 import { normalizeNewsLink } from './links.mjs'
 import { t } from '../copy/copy.mjs'
 
@@ -14,18 +15,20 @@ export const DEFAULT_AT = '08:00'
 // 主题隔几天跑一次：每天、工作日（周一到周五）、每周一。
 export const DAYS = ['daily', 'weekdays', 'monday']
 export const DEFAULT_DAYS = 'daily'
+// 「想看什么」最长写多少字（0.4 起是一句话；合并升级拼出来可能长，所以比老弹窗时代的 200 长）。
+export const WANT_MAX = 500
 // 这个主题后台生成时自动配置的权限：拒绝（deny，默认）/ 允许（allow，会话切成完全访问）。
 export const PERMISSIONS = ['deny', 'allow']
 export const DEFAULT_PERMISSION = 'deny'
-// 整个新闻页的设置：错过要不要补、好了要不要说一声。
-export const DEFAULT_PREFS = { catchUp: true, notify: true }
+// 整个新闻页的设置：错过要不要补、好了要不要说一声、后台能不能跑命令改文件。
+export const DEFAULT_PREFS = { catchUp: true, notify: true, permission: DEFAULT_PERMISSION }
 // 排好的那一页叫这个名字，就放在当天的日期目录里；接着问时给模型指的也是它。
 export const PAPER_FILE = t('report.file')
 // 「报过的」只留最近 90 天。
 export const REPORTED_KEEP_DAYS = 90
 
 // 名字里的字符能不能当路径用。
-function validNameChars(name) {
+export function validNameChars(name) {
   return !NAME_BAD_CHARS.test(name)
 }
 
@@ -75,12 +78,21 @@ function normalizeDays(days) {
 // 补齐缺省字段。空缺的东西按默认来。
 export function normalizeTopic(topic) {
   const src = topic && typeof topic === 'object' ? topic : {}
-  const name = typeof src.name === 'string' ? src.name.trim() : ''
   const want = typeof src.want === 'string' ? src.want.trim() : ''
+  const stored = typeof src.name === 'string' ? src.name.trim() : ''
+  // 起这个名字时用的那句话。跟 want 对不上（含老数据没有这一项）说明名字该重起了。
+  const nameOf = typeof src.nameOf === 'string' ? src.nameOf.trim() : ''
+  // 名字是用户自己改的：那句话再怎么换都不自动重起，也不问模型。
+  const nameBy = src.nameBy === 'user' ? 'user' : 'auto'
+  // 名字是自动总结的：那句话换了，按本地规则重起一个。
+  const name = nameBy === 'user' ? stored : (want && nameOf !== want ? (localName(want) || stored) : stored)
   const at = validAt(src.at) ? String(src.at).trim() : DEFAULT_AT
   return {
     id: typeof src.id === 'string' && src.id.trim() ? src.id.trim() : '',
     name,
+    // 名字归谁管：user 是用户自己改的，auto 是自动的
+    nameBy,
+    nameOf,
     want,
     at,
     days: normalizeDays(src.days),
@@ -92,17 +104,13 @@ export function normalizeTopic(topic) {
 }
 
 // 校验一个主题，返回中文错误数组，空数组就是没问题。
-// others 是同一份清单里的其他主题，用来挡同名。
-export function validateTopic(topic, others = []) {
+// 名字是自动总结的，不用人填，也不查重；这里只查那句话、时间和频率。
+export function validateTopic(topic) {
   const errors = []
   if (!topic || typeof topic !== 'object') return [t('newsDialog.badIncomplete')]
 
-  const name = typeof topic.name === 'string' ? topic.name.trim() : ''
-  if (charLength(name) < 1 || charLength(name) > 16) errors.push(t('newsDialog.badName'))
-  if (!validNameChars(name)) errors.push(t('newsDialog.badNameChars'))
-
   const want = typeof topic.want === 'string' ? topic.want.trim() : ''
-  if (charLength(want) < 1 || charLength(want) > 200) errors.push(t('newsDialog.badWant'))
+  if (charLength(want) < 1 || charLength(want) > WANT_MAX) errors.push(t('newsDialog.badWant'))
 
   // 没填的时间和格式按默认算，填错了才报错。
   const at = topic.at === undefined || topic.at === null || topic.at === '' ? DEFAULT_AT : topic.at
@@ -112,15 +120,20 @@ export function validateTopic(topic, others = []) {
   const days = topic.days === undefined || topic.days === null || topic.days === '' ? DEFAULT_DAYS : topic.days
   if (!DAYS.includes(days)) errors.push(t('newsDialog.badDays'))
 
-  const list = Array.isArray(others) ? others : []
-  if (name && list.some((other) => other && other !== topic && String(other.name ?? '').trim() === name)) {
-    errors.push(t('newsDialog.badDuplicate'))
-  }
-
   return [...new Set(errors)]
 }
 
 // 读主题清单：文件缺了或坏了就当空的。
+// 0.4 起文件写成 version 2。version 1 是 0.3 写的，也可能是 0.4 测试版写的，分不清的时候不动那句话：
+// - 好几个主题、又没有 bak-0.4：只能是 0.3 直接升上来的（0.4 测试版见到好几个就合成一个、并留下备份）。
+//   几个主题原样留着，每项的那句话写成「名字：想看什么」，名字用用户原来起的那个（nameOf 记成新那句话）；
+//   改写前先备份成 news.json.bak-0.4。
+// - 其余（只有一个主题，或者 bak-0.4 已经在）：那句话可能是用户在 0.4 测试版里自己改过的，不拼名字，
+//   名字按那句话重新起（normalizeTopic 发现 nameOf 对不上就用本地规则，模型的名字后台再换）。
+//   只有一个主题时拼上名字会把用户改过的那句话弄错（11-26 真机上碰到过：「AI 行业：网络安全的新产品」）。
+// 升级不弹任何提示。
+export const TOPICS_VERSION = 2
+
 export function loadTopics(file) {
   let raw
   try {
@@ -129,7 +142,24 @@ export function loadTopics(file) {
     return []
   }
   const list = Array.isArray(raw?.topics) ? raw.topics : []
-  return list.filter((item) => item && typeof item === 'object').map(normalizeTopic)
+  const items = list.filter((item) => item && typeof item === 'object')
+  if (!items.length) return []
+  const backup = `${file}.bak-0.4`
+  const legacy = !(Number(raw?.version) >= TOPICS_VERSION)
+  if (legacy && items.length > 1 && !existsSync(backup)) {
+    const upgraded = items.map((item) => {
+      const name = typeof item.name === 'string' ? item.name.trim() : ''
+      const want = typeof item.want === 'string' ? item.want.trim() : ''
+      const joined = name && want ? Array.from(`${name}：${want}`).slice(0, WANT_MAX).join('') : (want || name)
+      return { ...item, want: joined, name, nameOf: joined }
+    })
+    try {
+      copyFileSync(file, backup)
+      saveTopics(file, upgraded.map(normalizeTopic))
+    } catch { /* 备份不上也照常升级 */ }
+    return upgraded.map(normalizeTopic)
+  }
+  return items.map(normalizeTopic)
 }
 
 // 读文件里已经有的 prefs：存主题的时候别把它弄丢了。
@@ -146,12 +176,13 @@ function readPrefs(file) {
   return prefs
 }
 
-// 整页的设置：缺省是错过补一份、好了说一声。
+// 整页的设置：缺省是错过补一份、好了说一声、权限是拒绝。
 export function normalizePrefs(prefs) {
   const src = prefs && typeof prefs === 'object' && !Array.isArray(prefs) ? prefs : {}
   return {
     catchUp: src.catchUp === undefined ? DEFAULT_PREFS.catchUp : src.catchUp !== false,
     notify: src.notify === undefined ? DEFAULT_PREFS.notify : src.notify !== false,
+    permission: src.permission === 'allow' ? 'allow' : DEFAULT_PERMISSION,
   }
 }
 
@@ -165,7 +196,7 @@ export function saveNewsPrefs(file, prefs) {
   const next = normalizePrefs(prefs)
   const list = loadTopics(file)
   mkdirSync(dirname(file), { recursive: true })
-  const body = `${JSON.stringify({ version: 1, topics: list, prefs: next }, null, 2)}\n`
+  const body = `${JSON.stringify({ version: TOPICS_VERSION, topics: list, prefs: next }, null, 2)}\n`
   const temp = `${file}.tmp`
   writeFileSync(temp, body, { encoding: 'utf8', mode: 0o600 })
   renameSync(temp, file)
@@ -176,7 +207,7 @@ export function saveNewsPrefs(file, prefs) {
 export function saveTopics(file, topics) {
   const list = Array.isArray(topics) ? topics.filter((item) => item && typeof item === 'object') : []
   const prefs = readPrefs(file)
-  const body = `${JSON.stringify({ version: 1, topics: list, ...(prefs ? { prefs } : {}) }, null, 2)}\n`
+  const body = `${JSON.stringify({ version: TOPICS_VERSION, topics: list, ...(prefs ? { prefs } : {}) }, null, 2)}\n`
   mkdirSync(dirname(file), { recursive: true })
   const temp = `${file}.tmp`
   writeFileSync(temp, body, { encoding: 'utf8', mode: 0o600 })

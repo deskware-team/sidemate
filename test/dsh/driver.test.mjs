@@ -77,6 +77,18 @@ function replyTexts(events) {
   return events.filter(event => event.type === 'reply').map(event => event.text)
 }
 
+// 逐字流的前缀在任务窗里合成同一个气泡（后一段是前一段长出来的就不另开）：
+// 这里照 app/task/state.mjs 的规矩折好再比，前缀分几步来都算一个气泡
+function bubbles(events) {
+  const out = []
+  for (const text of replyTexts(events)) {
+    const last = out[out.length - 1]
+    if (last !== undefined && text.startsWith(last)) out[out.length - 1] = text
+    else out.push(text)
+  }
+  return out
+}
+
 async function runScript(taskId, respond) {
   const events = []
   const logs = []
@@ -606,12 +618,11 @@ process.stdin.on('data', (chunk) => {
     ensureNode()
     const { end, events } = await runScript('join', () => ({ kind: 'text', id: 'same', chunks: ['你', '好'] }))
     assert.equal(end.status, 'done', JSON.stringify(events))
-    assert.deepEqual(replyTexts(events), ['你好'])
+    assert.deepEqual(bubbles(events), ['你好'])
   })
 
-  // 工具调用之前的那段是动手前的过程话：不算回答，不进回话
-  // 开工时动手前的头一句（「好的，我先…」）先当回话冒出来；收场时再出最后那段
-  test('the first message before a tool call shows up as the opening line', { timeout: 60_000 }, async () => {
+  // 工具调用之前的那段也是过程话：收住（开始用工具）时就当一个气泡发出去
+  test('the first message before a tool call shows up as its own bubble', { timeout: 60_000 }, async () => {
     ensureNode()
     const { end, events } = await runScript('ids', (body) => {
       if (JSON.stringify(body).includes('tool_result')) return { kind: 'text', id: 'm2', chunks: ['乙', '方'] }
@@ -626,11 +637,11 @@ process.stdin.on('data', (chunk) => {
       }
     })
     assert.equal(end.status, 'done', JSON.stringify(events))
-    assert.deepEqual(replyTexts(events), ['甲方', '乙方'])
+    assert.deepEqual(bubbles(events), ['甲方', '乙方'])
   })
 
-  // 话 → 工具 → 话：开工那句先冒，再出最后那段
-  test('a tool call between text keeps the opening line and the last reply', { timeout: 60_000 }, async () => {
+  // 话 → 工具 → 话：两段各自一个气泡
+  test('a tool call between text keeps both replies as separate bubbles', { timeout: 60_000 }, async () => {
     ensureNode()
     const { end, events, trace } = await runScript('tool-split', (body) => {
       if (JSON.stringify(body).includes('tool_result')) return { kind: 'text', id: 'after', chunks: ['后', '面'] }
@@ -645,15 +656,15 @@ process.stdin.on('data', (chunk) => {
       }
     })
     assert.equal(end.status, 'done', JSON.stringify(events))
-    assert.deepEqual(replyTexts(events), ['前面', '后面'])
-    assert.deepEqual(trace.filter(item => item.startsWith('reply:') || item.startsWith('progress:')), [
-      'reply:前面',
-      'progress:search',
-      'reply:后面',
-    ])
+    assert.deepEqual(bubbles(events), ['前面', '后面'])
+    // 前面那段在工具之前就冒，最后那段在工具之后（前缀分几步来不算另一次）
+    const replies = trace.filter(item => item.startsWith('reply:'))
+    assert.ok(replies.length > 0, trace.join('|'))
+    assert.ok(trace.indexOf(replies[0]) < trace.indexOf('progress:search'), trace.join('|'))
+    assert.ok(trace.indexOf(replies[replies.length - 1]) > trace.indexOf('progress:search'), trace.join('|'))
   })
 
-  // usage_update 只是模型请求完了：这段话后面可能还有工具调用，不能当回答发出去
+  // usage_update 只是模型请求完了：这段话到收住（tool_call）或收场才发
   test('a usage update does not make the text a reply yet', { timeout: 60_000 }, async () => {
     ensureNode()
     const { end, events, trace } = await runScript('usage-split', (body) => {
@@ -669,11 +680,9 @@ process.stdin.on('data', (chunk) => {
       }
     })
     assert.equal(end.status, 'done', JSON.stringify(events))
-    // 开工那句（上半）在动手时才冒，不是在 usage_update 那一下
-    assert.deepEqual(replyTexts(events), ['上半', '下半'])
-    assert.equal(trace[0], 'usage_update')
-    assert.ok(trace.indexOf('reply:上半') > 0, trace.join('|'))
-    assert.ok(trace.indexOf('reply:下半') > 1, trace.join('|'))
+    // 前半段（上半）在动手时才冒；usage_update 自己不发话（发话的只有逐字流和收住/收场）
+    assert.deepEqual(bubbles(events), ['上半', '下半'])
+    assert.equal(trace.includes('usage_update'), true, trace.join('|'))
   })
 
   test('a blank reply is not emitted', { timeout: 60_000 }, async () => {

@@ -87,6 +87,12 @@ test('有任务在等确认：小岛冒的那一行是「等你确认」', () =>
   assert.equal(bubbleOf({ mode: 'confirm' }).text, '等你确认')
 })
 
+test('在等用户做事的两句不能被新闻盖掉：要你看一眼、等确认排在新闻前面', () => {
+  assert.equal(bubbleOf({ mode: 'look', news: true }).text, '需要关注！')
+  assert.equal(bubbleOf({ mode: 'confirm', news: true, message: 'x' }).text, 'x')
+  assert.equal(bubbleOf({ mode: 'confirm', news: true }).text, '等你确认')
+})
+
 test('小岛记着：在等重试的倒数、现在的模型看不看得了图（换状态不丢）', () => {
   let s = reduce(createState(), { type: 'sees', sees: true }).state
   assert.equal(s.mode, 'idle')

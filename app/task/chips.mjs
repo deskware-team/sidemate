@@ -1,6 +1,6 @@
 // 气泡里的小块：用户发出去的材料，在这次任务工作区里的那份拷贝。
 // 这里只算三样：这一轮带的是哪几份、对应工作区里的哪个文件、点开能不能开。
-// 打开的动作在主进程做（用系统默认程序），路径的核也在主进程做。
+// 打开的动作在主进程做（在预览窗里看），路径的核也在主进程做。
 
 import { existsSync, realpathSync } from 'node:fs'
 import { basename, extname, isAbsolute, relative, resolve, sep } from 'node:path'

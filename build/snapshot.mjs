@@ -32,6 +32,8 @@ export const INCLUDE = [
   'docs/release-0.2.0.en.md',
   'docs/release-0.3.0.md',
   'docs/release-0.3.0.en.md',
+  'docs/release-0.4.0.md',
+  'docs/release-0.4.0.en.md',
 ]
 
 // 明确不拷的（白名单之外也要挡一道，免得以后有人把它加进白名单）。
@@ -131,10 +133,17 @@ export function scanFile(rel, path) {
   return { rel, hits }
 }
 
+// 第三方原样打包的文件（app/vendor 下的流程图、公式库）不扫：它们一个字节都不能改，
+// 里面碰巧有的英文单词（比如图表库里的「线性」）跟我们的内部字眼同形，不是我们写的。
+export function scanSkipped(rel) {
+  return String(rel).startsWith('app/vendor/')
+}
+
 // 拷完扫一遍：拷过去的所有文件里有没有不该出现的字眼。
 export function scanCopied(dest, copied) {
   const found = []
   for (const rel of copied) {
+    if (scanSkipped(rel)) continue
     const path = join(dest, rel)
     if (!existsSync(path)) continue
     const { hits } = scanFile(rel, path)

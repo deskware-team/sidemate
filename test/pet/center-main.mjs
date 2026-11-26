@@ -162,8 +162,8 @@ const MEASURE = `(() => {
     }
     return null
   }
-  const eye = shown('#eyes .eye-l .sh-round') || shown('#eyes .eye-l .sh-down')
-    || shown('#eyes .eye-l .sh-arc') || shown('#eyes .eye-l .sh-wide') || shown('#eyes .eye-l .sh-line')
+  // 眼睛：每只一个 g（translate+scale）里一个椭圆，笑眼是细线；量看得见的那个
+  const eye = shown('#eye-l .pupil') || shown('#eye-l .lid')
   return {
     inner: { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio },
     scene: document.body.dataset.scene || '',

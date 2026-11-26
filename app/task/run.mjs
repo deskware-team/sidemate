@@ -17,6 +17,7 @@ import { unseenNames } from './unseen.mjs'
 import { unseenPending } from './pending.mjs'
 import { baseName } from './paths.mjs'
 import { charsText } from './paste-plan.mjs'
+import { statusMap } from './history-view.mjs'
 import { isSavedTextName, pasteDir, restoreText, saveImage, saveText } from './paste.mjs'
 import { recentTasks } from './recent-tasks.mjs'
 import { appPaths, dataPaths } from '../paths.mjs'
@@ -29,6 +30,7 @@ export function createRunner(deps = {}) {
   const newRunId = () => `run-${Date.now().toString(36)}-${(seq += 1)}`
   let foreground = false // 任务窗在不在前台：只有正看着的那条算在前台
   let running = 0 // 上回告诉小岛的「几个在跑」
+  let lastSig = '' // 上次告诉界面的状态签名
   const sessions = [] // 正看着的那条，加上切走了还留着的（在跑的、在后台跑完还没回来看的）
 
   const make = () => {
@@ -46,11 +48,34 @@ export function createRunner(deps = {}) {
 
   // 一条对话的状态变了：任务窗看着它就重画；在跑的个数变了告诉小岛（两个以上时冒「执行中 · N 个任务」）
   function onChange(one) {
-    if (one === shown) deps.onView?.(view())
+    const sig = statusSig()
+    // 看着的那条变了就重画；后台那条变了、状态签名也变了才重画（历史那头的标记要跟着变）
+    if (one === shown || sig !== lastSig) {
+      lastSig = sig
+      deps.onView?.(view())
+    }
     const count = sessions.filter((each) => each.running()).length
     if (count === running) return
     running = count
     deps.onPet?.({ type: 'running', count })
+  }
+
+  // 这些对话各是什么状态：在跑的在眼前看的，都摆成一份清单（判断在 ./history-view.mjs）
+  function statusRows() {
+    return sessions.map((one) => ({ id: one.historyId() || '', running: one.running(), shown: one === shown }))
+  }
+
+  // 一条对话现在的状态：'running' 在跑、'unread' 在后台跑完了还没回来看、'' 没有
+  function statusOf(historyId) {
+    const id = String(historyId ?? '')
+    if (!id) return ''
+    return statusMap(statusRows())[id] || ''
+  }
+
+  // 状态签名：哪些对话在跑、哪些跑完了还没看。变了界面就知道要重新要列表
+  function statusSig() {
+    const map = statusMap(statusRows())
+    return Object.keys(map).sort().map((id) => `${id}:${map[id]}`).join(',')
   }
 
   // 一条对话这一轮收场了：不在眼前（切走了、在后台跑完的）、而且是干完了的，就收拾它的临时文件，产出留着。
@@ -70,7 +95,11 @@ export function createRunner(deps = {}) {
     const allTasks = root && existsSync(appPaths(root).tasks) ? appPaths(root).tasks : ''
     // 小块还在不在：主进程看得到文件在不在（页面看不了）
     const hasVision = () => deps.hasVisionModel?.() === true
-    return toTaskView(shown.state(), { root, recent, recentTasks: tasks, allTasks, historyId: shown.historyId() || '', exists: (p) => Boolean(p) && existsSync(p), unseen, hasVision })
+    // 顶栏那个「预览」按钮：这次对话有成品或材料才显示（主进程数文件，页面只管显示）
+    const place = shown.state().place || {}
+    const preview = deps.previewInfo ? deps.previewInfo(place.dir || '') : { path: '', count: 0 }
+    const sig = statusSig()
+    return { ...toTaskView(shown.state(), { root, recent, recentTasks: tasks, allTasks, historyId: shown.historyId() || '', exists: (p) => Boolean(p) && existsSync(p), unseen, hasVision, preview }), statusSig: sig }
   }
 
   // 现在看着的这条对话用的模型自己看不看得了图
@@ -100,6 +129,7 @@ export function createRunner(deps = {}) {
     if (!sessions.includes(next)) sessions.push(next)
     next.feed({ type: 'window', foreground })
     log('switch', { historyId: next.historyId() || '', background: sessions.filter((one) => one !== next && one.running()).length })
+    lastSig = statusSig()
     deps.onView?.(view())
     deps.onSees?.(sees())
   }
@@ -220,14 +250,24 @@ export function createRunner(deps = {}) {
       const path = listed && listed === action.dir ? listed : knownPath(action.dir)
       const isTask = now.top.recent.tasks.some((one) => one.dir === path)
       if (path && (type === 'all-tasks' ? path === listed : isTask)) deps.openPath?.(path, false)
-    } else if (type === 'open-folder' || type === 'open' || type === 'reveal') {
+    } else if (type === 'open' || type === 'reveal') {
       const path = knownPath(action.path)
       if (path) deps.openPath?.(path, type === 'reveal')
+    }
+    // 预览这次对话：打开预览窗，选中最新的一份成品（没有成品就看第一份材料）
+    else if (type === 'preview-folder') {
+      const path = knownPath(action.path)
+      if (path) deps.openPreviewFolder?.(path)
     }
     // 另存为：系统另存为对话框，拷一份到用户选的地方
     else if (type === 'save-as') {
       const path = knownPath(action.path)
       if (path) void deps.saveAs?.(path)
+    }
+    // 预览：预览这份文件（预览窗还没做好，主进程那边先退回成用系统程序打开）
+    else if (type === 'preview') {
+      const path = knownPath(action.path)
+      if (path) deps.openPreview?.(path)
     }
   }
 
@@ -322,5 +362,7 @@ export function createRunner(deps = {}) {
     workspace: () => shown.workspace(),
     // 有没有对话在干活（看着的、后台的都算）：小岛的新闻红点等手头的活干完再亮
     busy: () => sessions.some((one) => one.running()),
+    // 一条对话现在的状态：'running' 在跑、'unread' 在后台跑完了还没回来看、'' 没有
+    statusOf,
   }
 }

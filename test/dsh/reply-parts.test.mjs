@@ -1,8 +1,7 @@
-// 回话：开工时动手前的头一句（「好的，我先读这两份文件」）先冒出来，最后的回答收场时出；
-// 中间每一步动手前的过程话不进回话，也不进对话历史。
+// 回话：干活过程中模型说的每一段话都是一个气泡、都留着（学 Grok Bot）：
+// 每开始用一次工具，前面那段就收住发出去；收场时最后那段也发。逐字流出来时发前缀，
+// 收住时用结算整段校准。过程话也进对话历史。
 // 这里用一个只说 ACP 的假对端，事件序列自己排：话 → 工具 → 话。
-// 规则：一轮里，头一次工具调用之前的那段算开工那句；后面一段话后面还跟着工具调用的，算过程话；
-// 最后一次工具调用之后的那段（没有工具调用就是全部）算回答。
 
 import assert from 'node:assert/strict'
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -22,7 +21,7 @@ function scratch(prefix) {
 
 // 假对端：按 peer.json 里的 mode 回话。事件顺序就是这里写下的顺序。
 const PEER_SCRIPT = `
-const { readFileSync } = require('node:fs')
+const { appendFileSync, readFileSync } = require('node:fs')
 const { join } = require('node:path')
 const cfg = JSON.parse(readFileSync(join(__dirname, '..', '..', '..', '..', '..', 'peer.json'), 'utf8'))
 let buf = ''
@@ -60,6 +59,18 @@ process.stdin.on('data', (chunk) => {
         tool()
         say('话B', 'm2')
         send({ jsonrpc: '2.0', id: msg.id, result: { stopReason: 'end_turn' } })
+      } else if (cfg.mode === 'stream') {
+        // 逐字流：照真插件的样子，把每个字一行一行写进桌伴给的那个文件（路径在环境变量里）
+        const file = process.env.DSH_SIDEMATE_STREAM_FILE || ''
+        const line = (item) => { try { appendFileSync(file, JSON.stringify(item) + '\\n', 'utf8') } catch { /* 写不动就当没这行 */ } }
+        line({ sessionId: 'peer-1', attemptId: 'a1', kind: 'delta', text: '你' })
+        line({ sessionId: 'peer-1', attemptId: 'a1', kind: 'delta', text: '好' })
+        // 等桌伴把文件读走（读器隔一会儿读一回），再结算整段
+        setTimeout(() => {
+          line({ sessionId: 'peer-1', attemptId: 'a1', kind: 'end', committed: true })
+          say('你好')
+          send({ jsonrpc: '2.0', id: msg.id, result: { stopReason: 'end_turn' } })
+        }, 400)
       } else {
         say('话A')
         tool()
@@ -83,7 +94,7 @@ function fakePeer(mode) {
   return root
 }
 
-async function runPeer(mode, taskId) {
+async function runPeer(mode, taskId, extra = {}) {
   const events = []
   const handle = runTask({
     taskId,
@@ -95,6 +106,7 @@ async function runPeer(mode, taskId) {
     // 报错也要重试（没说原因就失败算服务出错）：测试里等不起，只试一次
     retryPolicy: { initialDelayMs: 10, maxDelayMs: 20, maxRetries: 1 },
     onEvent: (event) => events.push(event),
+    ...extra,
   })
   const end = await handle.done
   return { end, events, replies: events.filter((one) => one.type === 'reply').map((one) => one.text) }
@@ -104,16 +116,16 @@ after(() => {
   for (const dir of roots) { try { rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) } catch { /* Windows 上进程刚收掉还占着文件：删不掉就留给系统清 */ } }
 })
 
-test('话 → 工具 → 话：开工那句先冒，再出最后那段', { timeout: 60_000 }, async () => {
+test('话 → 工具 → 话：两段话各自一个气泡', { timeout: 60_000 }, async () => {
   const { end, events, replies } = await runPeer('tool', 'reply-tool')
   assert.equal(end.status, 'done', JSON.stringify(events))
   assert.deepEqual(replies, ['话A', '话B'])
 })
 
-test('话 → 工具 → 话 → 工具 → 话：中间那段过程话不出', { timeout: 60_000 }, async () => {
+test('三段过程话出三个气泡：中间那段不丢', { timeout: 60_000 }, async () => {
   const { end, events, replies } = await runPeer('tool2', 'reply-tool2')
   assert.equal(end.status, 'done', JSON.stringify(events))
-  assert.deepEqual(replies, ['话A', '话C'])
+  assert.deepEqual(replies, ['话A', '话B', '话C'])
 })
 
 test('没有工具调用：话原样就是回答', { timeout: 60_000 }, async () => {
@@ -128,22 +140,35 @@ test('两段话、中间没有工具：合起来就是回答', { timeout: 60_000
   assert.deepEqual(replies, ['话A话B'])
 })
 
-test('话 → 工具 → 出错：开工那句照冒，没有别的回答', { timeout: 60_000 }, async () => {
+test('话 → 工具 → 出错：动手前那段照冒，没有别的回答', { timeout: 60_000 }, async () => {
   const { end, events, replies } = await runPeer('error', 'reply-error')
   assert.equal(end.status, 'error', JSON.stringify(events))
   assert.deepEqual(replies, ['话A'])
   assert.equal(events.some((one) => one.type === 'error'), true)
 })
 
-test('回答在收场前发出去：开工那句在动手时就冒', { timeout: 60_000 }, async () => {
+test('回答在收场前发出去：动手前那段在动手时就冒', { timeout: 60_000 }, async () => {
   const { end, events, replies } = await runPeer('tool', 'reply-order')
   assert.equal(end.status, 'done', JSON.stringify(events))
   // 回话这条排在结束之前：任务窗先收话，再收场
   const atReply = events.findIndex((one) => one.type === 'reply')
   const atEnd = events.findIndex((one) => one.type === 'end')
   assert.ok(atReply >= 0 && atReply < atEnd, JSON.stringify(events.map((one) => one.type)))
-  // 开工那句排在工具调用之前、回答排在结束之前
+  // 动手前那段排在工具调用之前、回答排在结束之前
   const types = events.map((one) => one.type)
   assert.ok(types.indexOf('reply') < types.indexOf('tool-call'), JSON.stringify(types))
   assert.equal(replies.length, 2)
+})
+
+test('逐字流：增量发出去的是前缀递增，结算的整段不再重复一遍', { timeout: 60_000 }, async () => {
+  const { end, events, replies } = await runPeer('stream', 'reply-stream')
+  assert.equal(end.status, 'done', JSON.stringify(events))
+  assert.deepEqual(replies, ['你', '你好'])
+})
+
+test('新闻那一轮不转发逐字流', { timeout: 60_000 }, async () => {
+  const { end, events, replies } = await runPeer('stream', 'reply-streamnews', { title: false })
+  assert.equal(end.status, 'done', JSON.stringify(events))
+  // 只有收场那句结算的整段，没有流式前缀
+  assert.deepEqual(replies, ['你好'])
 })

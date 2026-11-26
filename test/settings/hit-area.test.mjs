@@ -1,4 +1,4 @@
-// 设置窗「点击区域」真窗口体检：六页加两个弹窗，把每个能点的东西量一遍。
+// 设置窗「点击区域」真窗口体检：六页加一个弹窗，把每个能点的东西量一遍。
 //
 // 做法：起开发版（electron .），用调试端口连上设置窗那一页，一页一页点开，
 // 在页面里跑 hit-area-audit.mjs 那段体检脚本，列出每个能点的：
@@ -153,7 +153,7 @@ test('设置窗每一页的点击区域：看着能点的都要点得中，点�
       writeFileSync(path.join(shots, `设置-${page}.png`), await shoot(settings))
     }
 
-    // 两个弹窗：加一个自定义模型、加一个新闻主题
+    // 一个弹窗：加一个自定义模型（新闻页 0.4 起没有弹窗了，只有一张卡片）
     await evaluate(settings, `document.querySelector('[data-page="models"]').click()`)
     await sleep(500)
     await evaluate(settings, `document.querySelector('#models-add').click()`)
@@ -162,14 +162,6 @@ test('设置窗每一页的点击区域：看着能点的都要点得中，点�
     writeFileSync(path.join(shots, '设置-弹窗-自定义模型.png'), await shoot(settings))
     await evaluate(settings, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
     await sleep(400)
-    await evaluate(settings, `document.querySelector('[data-page="news"]').click()`)
-    await sleep(500)
-    await evaluate(settings, `document.querySelector('#news-add').click()`)
-    await sleep(900)
-    pages['弹窗-新闻主题'] = await evaluate(settings, AUDIT_SOURCE)
-    writeFileSync(path.join(shots, '设置-弹窗-新闻主题.png'), await shoot(settings))
-    await evaluate(settings, `document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
-    await sleep(300)
 
     // 表和原始结果
     writeFileSync(path.join(out, 'hit-area.json'), JSON.stringify(pages, null, 2))

@@ -57,6 +57,7 @@ export function dataPaths(root = appRoot()) {
     taskLog: join(dir, 'task.log'),
     settingsLog: join(dir, 'settings.log'),
     petLog: join(dir, 'pet.log'),
+    perfLog: join(dir, 'perf.log'),
     newsLog: join(dir, 'news.log'),
     usage: join(dir, 'usage.json'),
     recent: join(dir, 'recent.json'),

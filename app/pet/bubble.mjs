@@ -1,6 +1,6 @@
 // 冒的那一行：五个状态各一行字，末尾可能有能点的「打开」「去设置」。
 // 这一行只在鼠标停着（小岛张着）的时候出现；有事不自动冒字。
-// 有新新闻（红点亮着）的时候换成新闻那句。字是状态码 St7xx（app/copy/status.mjs），
+// 有新新闻（红点亮着）的时候换成新闻那句（但在等用户做事的 look / confirm 除外）。字是状态码 St7xx（app/copy/status.mjs），
 // 「打开」「去设置」两个按钮是界面文案（app/copy/ui-desk.mjs）。
 // 纯函数，不碰 electron，好测。
 
@@ -42,10 +42,12 @@ export function bubbleOf(state, now = Date.now()) {
     return { text: wait ? SAY.wait(secondsLeft(wait, now), state?.waitKind || '') : SAY.work(elapsed), actions: [] }
   }
   // 有新新闻：停上来冒的那行换成新闻那句（点一下就开）
-  if (state?.news === true) return { text: SAY.news, actions: [] }
-  if (mode === 'look') return { text: SAY.look, actions: [] }
-  // 等确认：说的是「等你确认」
+  // 顺序：work > confirm > look > 新闻 > done > fail > 平时那几句
+  // confirm（等用户确认权限）和 look（任务在问用户问题）是在等用户做事，
+  // 不能被新闻盖掉，所以这两句排在新闻前面
   if (mode === 'confirm') return { text: state?.message || SAY.confirm, actions: [] }
+  if (mode === 'look') return { text: SAY.look, actions: [] }
+  if (state?.news === true) return { text: SAY.news, actions: [] }
   // 做完了：有产出才给「打开文件夹」（开的是成品所在的那个文件夹）
   if (mode === 'done') return { text: SAY.done, actions: artifact ? [{ id: 'open', label: t('top.openFolder') }] : [] }
   if (mode === 'fail') return { text: SAY.fail, actions: [{ id: 'settings', label: t('desk.goSettings') }] }

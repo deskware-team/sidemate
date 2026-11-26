@@ -1,6 +1,10 @@
 <!doctype html>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:">
+<!-- style-src 放开 'unsafe-inline'：流程图那个库把样式写进 SVG 里的 <style> 元素，
+     CSP 默认不让内联样式，样式被挡下来图就没有颜色。script-src 不动。
+     img-src 加上 https: 和 file:：对话里的图片有两种——网上那张（https:）直接显示，
+     工作区里那张由主进程核过路径后给一个 file: 地址（file: 只给核过的工作区文件用）。 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data: https: file:">
 <title></title>
 <link rel="stylesheet" href="task.css">
 <div id="frame">
@@ -13,8 +17,8 @@
     </button>
   </div>
   <div id="topright">
-    <button id="openfolder" type="button" hidden>
-      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 5.2a1.2 1.2 0 0 1 1.2-1.2h2.9l1.4 1.6h5.3A1.2 1.2 0 0 1 14 6.8v5.4a1.2 1.2 0 0 1-1.2 1.2H3.2A1.2 1.2 0 0 1 2 12.2z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <button id="previewbtn" type="button" hidden>
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5h5.5l3 3V13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><path d="M9.5 2.5v3h3" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/><circle cx="10.5" cy="10" r="2.7" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M12.6 12.1 14.5 14" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
     </button>
     <button id="newtask" type="button"></button>
   </div>

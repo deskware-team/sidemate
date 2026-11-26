@@ -5,6 +5,7 @@
 // Esc 和滚动那条线这两件共用事放在 overlay.js 里，跟另外两个弹窗同一套。
 
 import { makeEscStack, markScroll } from './overlay.js'
+import { openAskDialog } from './ask-view.js'
 import { t } from '../copy/copy.mjs'
 
 // 跟 app/settings/abilities.mjs 里同一套话（渲染进程引不了那个文件，这里抄一份）
@@ -342,8 +343,9 @@ export function openMcpDialog(payload, { onSaved, onRemove } = {}) {
   // 底下：改条目时最左边「删掉这个 MCP」；「怎么填？」点开一段说明；右边「测一下」「存下」
   const problem = el('span', { class: 'result bad', role: 'status' })
   const removeLink = form.id
-    ? el('button', { type: 'button', class: 'textlink deletelink', text: t('mcp.removeLink'), onclick: () => {
-        if (!window.confirm(t('mcp.removeConfirm', { name: form.name || form.id }))) return
+    ? el('button', { type: 'button', class: 'textlink deletelink', text: t('mcp.removeLink'), onclick: async () => {
+        const yes = await openAskDialog({ text: t('mcp.removeConfirm', { name: form.name || form.id }), ok: t('common.delete'), cancel: t('common.cancel'), danger: true })
+        if (!yes) return
         if (typeof onRemove === 'function') onRemove(form, close)
       } })
     : null

@@ -29,7 +29,7 @@ function topic(patch = {}) {
 }
 
 function setup(root, { topics = [topic()], prefs = { catchUp: true, notify: true } } = {}) {
-  writeFileSync(join(root, '新闻.json'), JSON.stringify({ version: 1, topics, prefs }), 'utf8')
+  writeFileSync(join(root, '新闻.json'), JSON.stringify({ version: 2, topics, prefs }), 'utf8')
 }
 
 const goodModel = () => ({

@@ -59,5 +59,5 @@ test('dshLaunch：起进程前把那份说明放进 agents 目录，DSH_AGENTS_H
   assert.equal(existsSync(path), true)
   assert.equal(readFileSync(path, 'utf8'), `${agentsGuideText()}\n`)
   // 那几句就写在文件里，不多不少
-  assert.equal(AGENTS_GUIDE, '回话用 Markdown。分几件事说时，每件用「### 小标题」开头；粗体只用一对 **。给用户看的话一律用中文。')
+  assert.equal(AGENTS_GUIDE, '回话用 Markdown。分几件事说时，每件用「### 小标题」开头；粗体只用一对 **。给用户看的话一律用中文。工具没拿到结果、影响成品的，在回话里直接说哪一项没拿到、你是怎么处理的。材料里没有的时间、地点、人名、数字，不要自己补；缺了就写「待定」或「另行通知」，并在回话里说一声。干活过程中你说的每一段话用户都看得到：用用户听得懂的话说你在做什么、为什么，不提工具名、命令和报错原文。任务窗能直接画统计图：用户要看数字的对比、趋势、占比时，在回话里写一个 chart 代码块——```chart 单独一行，JSON 另起一行，``` 单独一行收尾，type 写 bar、line 或 pie：\n```chart\n{"type":"bar","title":"三家门店本周客流","unit":"人次","categories":["东湖店","南站店"],"series":[{"name":"本周","data":[2160,1980]}],"source":"门店客流.xlsx · Sheet1 B2:B3"}\n```\n数字只用材料里的，source 写出处。任务窗也能直接画流程图：用户要看流程、步骤、分工时，在回话里写一个 mermaid 代码块（flowchart、sequenceDiagram、timeline 都行），节点文字用中文。任务窗也能显示图片和公式：图片用 ![说明](文件名) 引用工作区里的图片文件；公式用 $...$（行内）或 $$...$$（单独一段）。')
 })

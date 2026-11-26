@@ -9,6 +9,9 @@
   --bg: #f5f1e8;     /* 底：窗口、小标 */
   --accent: #c53a22; /* 印：链接、删除 */
   --ink-faint: #a8a29a; /* 淡：灰着的字，比如还没接上的按钮 */
+  --wash: #fbf9f5;    /* 洗：新闻页输入框的底 */
+  --note: #9a9284;    /* 注：新闻页输入框下面那行小字 */
+  --line-soft: #efeae0; /* 软线：新闻页卡片里的分隔线 */
   --fs-page: 18px;   /* 页标题 */
   --fs-row: 14px;    /* 行名、目录项 */
   --fs-small: 12px;  /* 小字、按钮字 */
@@ -70,6 +73,8 @@ button.btn {
 }
 button.btn:hover { border-color: var(--sub); }
 button.btn.danger { color: var(--accent); }
+/* 删东西之前那个小窗的主钮：危险操作，红褐底白字 */
+button.btn.danger-ok { background: var(--accent); border-color: var(--accent); color: var(--bg); }
 button.btn:disabled { opacity: 0.5; cursor: default; }
 
 /* 白卡片：模型列表、文档列表、全文都套这一层 */
@@ -361,36 +366,56 @@ ul.card {
 .dialog .ab-warn { margin: 0; font-size: var(--fs-small); line-height: 19px; color: var(--accent); }
 .dialog .howto { margin: 0; font-size: var(--fs-small); line-height: 19px; color: var(--sub); }
 
-/* 新闻页：主题列表一行一个主题（第一行名字、第二行一句话，右边按钮和开关） */
+/* 新闻页：每个主题一张白卡片（名字、开关、删除、一句话、频率和时间、今天的状态），卡与卡之间 14 */
 #page-news { display: flex; flex-direction: column; gap: 14px; }
-#news-list li {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 0; border-bottom: 1px solid var(--line);
+#news-cards { display: flex; flex-direction: column; gap: 14px; }
+#news-cards:empty { display: none; }
+.news-card { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+/* 卡顶上那行：左边名字（点一下能改），右边「删除」和开关 */
+.news-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 18px; }
+.news-name {
+  flex: 1; min-width: 0; box-sizing: border-box; height: 22px; margin: 0; padding: 0 6px;
+  font-family: inherit; font-size: 14px; font-weight: 500; line-height: 20px; color: var(--ink);
+  background: transparent; border: 1px solid transparent; border-radius: var(--r-item);
 }
-#news-list li:last-child { border-bottom: 0; }
-#news-list li.empty { color: var(--sub); font-size: var(--fs-small); line-height: 19px; }
-#news-list .text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-#news-list .name {
-  display: flex; align-items: center; gap: 6px; min-width: 0;
-  font-size: var(--fs-row); font-weight: 500; line-height: 17px; color: var(--ink);
+.news-name:hover { border-color: var(--line); }
+.news-name:focus { outline: none; border-color: var(--sub); }
+.news-side { flex: none; display: flex; align-items: center; gap: 16px; }
+.news-side button.link.news-remove { margin: -6px -4px; padding: 6px 4px; font-size: var(--fs-small); line-height: 14px; color: var(--sub); }
+.news-want {
+  box-sizing: border-box; width: 100%; height: 88px; margin: 0; padding: 10px 12px; resize: none;
+  font-family: inherit; font-size: 13px; line-height: 21px;
+  border: 1px solid var(--line); border-radius: var(--r-item); background: var(--wash);
 }
-/* 第二行一句话：太长就一行省略（全文在 title 里）；末尾的状态不跟着被截掉 */
-#news-list .note {
-  display: flex; align-items: baseline; min-width: 0;
-  font-size: var(--fs-small); line-height: 19px; color: var(--sub);
+.news-want:focus { outline: none; border-color: var(--sub); }
+.news-hint { font-size: var(--fs-tag); line-height: 15px; color: var(--note); }
+.news-when { display: flex; align-items: center; gap: 8px; }
+.news-days {
+  height: 26px; padding: 4px 8px; font-family: inherit; font-size: 13px; line-height: 16px;
+  border: 1px solid var(--line); border-radius: var(--r-item); background: var(--face); color: var(--ink);
 }
-#news-list .note .sum { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#news-list .side { display: flex; align-items: center; gap: 12px; }
-/* 「现在生成」和「生成中…」一样宽：点下去不跳 */
-#news-list .side .btn.now { min-width: 70px; }
-/* 第二行末尾那一句状态：今天交了没有 */
-#news-list .rowstatus {
-  flex: 0 0 auto; max-width: 70%; margin-left: 8px;
+.news-at {
+  width: 59px; height: 26px; margin: 0; padding: 4px 12px;
+  font-size: 13px; line-height: 16px;
+  border: 1px solid var(--line); border-radius: var(--r-item); background: var(--face); text-align: center;
+}
+.news-at:focus, .news-days:focus { outline: none; border-color: var(--sub); }
+/* 正在生成 / 排队中：状态行用墨色，跟平时的灰字分开 */
+.news-status.busy { color: var(--ink); }
+.news-suffix { font-size: 13px; line-height: 16px; color: var(--ink); }
+.news-inner-line { width: 100%; height: 1px; margin: 0; border: 0; background: var(--line-soft); }
+.news-today { display: flex; align-items: center; gap: 12px; }
+/* 状态行那句：太长就一行省略（全文在 title 里） */
+.news-status {
+  flex: 1; min-width: 0; font-size: var(--fs-small); line-height: 19px; color: var(--sub);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-#news-list .sum:empty + .rowstatus { margin-left: 0; }
-#news-list .rowstatus.bad { color: var(--accent); }
-#news-list .tag.off { opacity: 0.5; }
+.news-status.bad { color: var(--accent); }
+/* 「立即生成」和「生成中…」一样宽：点下去不跳 */
+.news-today .btn.now { min-width: 70px; }
+/* 想看什么空着：按钮和整份开关灰样子（还能点，点了写那一句） */
+button.btn.off { opacity: 0.5; cursor: default; }
+#page-news .switch.off { opacity: 0.5; }
 /* 整页的设置：一条线，两个设置项 */
 .news-line { width: 100%; height: 1px; margin: 0; border: 0; background: var(--line); }
 .pref-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

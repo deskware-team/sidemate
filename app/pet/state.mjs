@@ -5,6 +5,7 @@
 // 别的任务还在干活的动静不顶掉它。
 // 另外记几样给冒的那一行用：wait / waitKind（在等重试，倒数到头的时刻、错的种类）、sees（现在干活的模型看不看得了图）、
 // running（几个任务在跑，两个以上冒「执行中 · N 个任务」）。
+// 还有 phase：模型这一会儿在干什么（在读 / 在写 / 在想），干活中才有，出了干活就清掉。
 
 import { t } from '../copy/copy.mjs'
 
@@ -14,7 +15,7 @@ export const DONE_NOTE = t('St705')
 const HELD = new Set(['done', 'look', 'fail', 'confirm'])
 
 export function createState() {
-  return { mode: 'idle', taskId: null, message: '', artifact: '', notice: '' }
+  return { mode: 'idle', taskId: null, message: '', artifact: '', notice: '', phase: '' }
 }
 
 // 通知正文：事件里带了话就用它；什么都没带是「出错了！」（St706）
@@ -29,12 +30,15 @@ function noticeOf(event, fallback) {
   return typeof event.notice === 'string' && event.notice.trim() ? event.notice.trim() : fallback
 }
 
-// 现在的模型看不看得了图、几个任务在跑：换状态时不丢（新状态里自己带了的照新的）
+// 现在的模型看不看得了图、几个任务在跑、这一会儿在干什么：换状态时不丢（新状态里自己带了的照新的）
 function keep(from, to) {
   if (!from) return to
   const out = { ...to }
   if (typeof from.sees === 'boolean' && typeof out.sees !== 'boolean') out.sees = from.sees
   if (from.running && out.running === undefined) out.running = from.running
+  // 阶段：出了干活就清掉；进了干活还没记下的先当「在读」
+  if (from.mode === 'work' && to.mode !== 'work') out.phase = ''
+  else if (to.mode === 'work' && !out.phase) out.phase = from.phase || 'read'
   return out
 }
 
@@ -58,6 +62,13 @@ function reduceMode(state, event) {
     if (!running && next.mode === 'work') next = { ...createState(), running }
     else if (running && next.mode === 'idle') next = { ...workOf(), running }
     return { state: next, notify: false, hold: false }
+  }
+  // 阶段（在读、在写、在想）：只更新阶段，不弹通知、不换状态。停在做完了那三种的不记
+  if (event.type === 'phase') {
+    if (state.mode !== 'work' && state.mode !== 'idle') return none
+    const phase = typeof event.phase === 'string' ? event.phase : ''
+    if (!phase || phase === state.phase) return none
+    return { state: { ...state, phase }, notify: false, hold: false }
   }
   const taskId = event.taskId ?? null
   // 有一个做完了（没干成、在问你）还没看：别的任务的动静不顶掉它，换成另一个做完的才换

@@ -149,11 +149,12 @@ test('dshLaunch：没有 apiKey 就不设 DEEPSEEK_API_KEY，env 只留钥匙变
   const base = { taskId: 'env-check', workspace: scratch('sidemate-sw-ws-'), lowRoot: scratch('sidemate-sw-low-'), prompt: 'hi' }
   const none = dshLaunch(base)
   assert.equal('DEEPSEEK_API_KEY' in none.env, false, '不给钥匙时环境里不能有这个变量')
-  // 除了桌伴自己的插话补丁和重试播报那份，没有别的补丁（模式那份并进插话那份了）
-  assert.equal(none.patches.length, 2)
+  // 桌伴自己的插件就三份：插话（含模式）、重试播报、逐字流
+  assert.equal(none.patches.length, 3)
   assert.match(readFileSync(none.patches[0], 'utf8'), /_sidemate\/steer/)
   assert.match(readFileSync(join(none.home, 'patches', 'steer-plugin.mjs'), 'utf8'), /_sidemate\/mode/)
   assert.match(readFileSync(none.patches[1], 'utf8'), /sidemate-retry/)
+  assert.match(readFileSync(none.patches[2], 'utf8'), /sidemate-stream/)
   assert.equal('DEEPSEEK_API_KEY' in dshLaunch({ ...base, apiKey: '' }).env, false, '空钥匙也不设')
   assert.equal(dshLaunch({ ...base, apiKey: 'abc' }).env.DEEPSEEK_API_KEY, 'abc')
   const mixed = dshLaunch({
@@ -196,8 +197,8 @@ test('dshLaunch：全局配置不在这儿写，插件补丁排在内置补丁�
   // 全局配置（模型路线、联网、技能开关）只有设置那边写：起进程不碰那份文件
   // （两个任务同时跑的时候各写各的会互相覆盖）
   assert.equal(existsSync(join(lowRoot, 'dsh', 'cordis.patch.yml')), false)
-  // 插话那份（含模式）和重试播报那份是插件：起进程时只装一次
-  assert.equal(launch.patches.length, 2)
+  // 插话（含模式）、重试播报、逐字流三份是插件：起进程时只装一次
+  assert.equal(launch.patches.length, 3)
   const steerPath = launch.patches[0]
   assert.equal(steerPath, join(lowRoot, 'patches', 'sidemate-steer.patch.yml'))
   assert.match(readFileSync(steerPath, 'utf8'), /_sidemate\/steer/)
@@ -211,6 +212,13 @@ test('dshLaunch：全局配置不在这儿写，插件补丁排在内置补丁�
   // 播报文件的位置从环境变量给桌伴，插件照那个写
   assert.equal(launch.env.DSH_SIDEMATE_RETRY_FILE, launch.retryFile)
   assert.ok(launch.retryFile.startsWith(join(lowRoot, 'temp')), launch.retryFile)
+  // 逐字流那份：插一行自己的插件，文件的位置也从环境变量给
+  const streamPath = launch.patches[2]
+  assert.equal(streamPath, join(lowRoot, 'patches', 'sidemate-stream.patch.yml'))
+  assert.match(readFileSync(streamPath, 'utf8'), /sidemate-stream/)
+  assert.ok(launch.args.indexOf(streamPath) > 0, '逐字流补丁要出现在启动参数里')
+  assert.equal(launch.env.DSH_SIDEMATE_STREAM_FILE, launch.streamFile)
+  assert.ok(launch.streamFile.startsWith(join(lowRoot, 'temp')), launch.streamFile)
   const builtins = patchFiles()
   const lastBuiltin = launch.args.lastIndexOf(builtins[builtins.length - 1])
   for (const path of launch.patches) {

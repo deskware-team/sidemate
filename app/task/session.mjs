@@ -15,7 +15,6 @@ import { noteUsage } from '../usage/index.mjs'
 import { PENDING_DIR_NAME, PLAN_DIR_NAME } from '../abilities/install.mjs'
 import { RECEIVED_NAME } from '../workspace/index.mjs'
 import { createInstallFlow } from './install-flow.mjs'
-import { quietToolFail, toolFailNote } from './tool-note.mjs'
 import { codeFor, errorCodeLine } from './codes.mjs'
 import { copiesOf, freshFiles, markReceivedFiles, steerFiles } from './attach.mjs'
 import { appPaths } from '../paths.mjs'
@@ -505,6 +504,8 @@ export function createSession({ deps = {}, log = () => {}, newRunId, onChange = 
       sessionId: resume ? task.sessionId : undefined,
       onEvent: (event) => {
         if (event.type === 'progress') feed({ type: 'progress', text: event.text, taskId: round.runId })
+        // 阶段（在读、在写、在想）：只给小岛换神情用，不换状态、不进对话
+        else if (event.type === 'phase') deps.onPet?.({ type: 'phase', phase: event.phase, taskId: round.runId })
         // 模型在哪一步、静了多久：状态行用，不进日志
         else if (event.type === 'pulse') feed({ type: 'pulse', phase: event.phase, quietSince: event.quietSince, taskId: round.runId })
         else if (event.type === 'reply') feed({ type: 'reply', text: event.text, taskId: round.runId })
@@ -517,13 +518,9 @@ export function createSession({ deps = {}, log = () => {}, newRunId, onChange = 
         else if (event.type === 'artifact') round.artifacts.push(event)
         // 模型交稿了：这几份是成品（卡上写「文件生成」）
         else if (event.type === 'present') round.presented.push(...(event.files || []))
-        // 工具调用没成功：都记日志；模型自己读写文件的不在对话里说（见 ./tool-note.mjs），
-        // 别的说一句，别让用户以为它拿到了结果
+        // 工具调用没成功：只记日志。对话里不出那一行，由模型自己决定下一步、自己说。
         else if (event.type === 'tool-failed') {
-          const quiet = quietToolFail(event.name)
-          log('tool-failed', { taskId: round.runId, name: event.name || '', error: event.error || '', quiet })
-          const text = quiet ? '' : toolFailNote(deps, event.name, event.input)
-          if (text) feed({ type: 'note', text, taskId: round.runId })
+          log('tool-failed', { taskId: round.runId, name: event.name || '', error: event.error || '' })
         }
         // 外部工具服务的配置 dsh 不认：这一轮没带上它，说一句
         else if (event.type === 'mcp-config-failed') feed({ type: 'note', text: t('St411'), taskId: round.runId })

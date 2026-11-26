@@ -7,7 +7,9 @@ const FILE_MAX = 800
 function skip(name) {
   // The dsh lock is pinned data, not hand-written code: it is past the 800-line
   // per-file cap, so it is skipped. Only the per-file cap is enforced.
-  return name === 'node_modules' || name === 'package-lock.json'
+  // app/vendor holds third-party bundles (the mermaid build) copied as-is:
+  // not hand-written code, so it does not count either.
+  return name === 'node_modules' || name === 'package-lock.json' || name === 'vendor'
 }
 
 export function measure(roots, limits = {}) {

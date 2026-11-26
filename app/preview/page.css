@@ -1,0 +1,191 @@
+/* 预览窗的皮：左边文件栏，右边标题条 + 画布 + 底条。
+   颜色跟设置窗、任务窗同一套（#f5f1e8 底、#e3ded3 线、#22201c 墨、#5f5a52 次、#9a9284 淡）。 */
+
+:root {
+  --ink: #22201c;
+  --sub: #5f5a52;
+  --faint: #9a9284;
+  --line: #e3ded3;
+  --face: #ffffff;
+  --bg: #f5f1e8;
+  --side: #f0ebe1;
+  --canvas: #e7e1d5;
+  --badge: #e9e3d6;
+  --font: "Noto Sans SC", "Microsoft YaHei UI", sans-serif;
+  font: 13px/1.5 var(--font);
+  color: var(--ink);
+  background: var(--bg);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; overflow: hidden; background: var(--bg); }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+
+/* 没有系统标题栏：顶上 32 高这一条拿来拖窗口；右上角一个圆形关闭按钮 */
+#winbar {
+  position: relative; height: 32px; padding: 0 40px 0 14px;
+  -webkit-app-region: drag; background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+#win-title { font-size: 12px; font-weight: 500; color: var(--ink); line-height: 32px; }
+#win-close {
+  position: absolute; top: 4px; right: 8px; width: 24px; height: 24px; margin: 0; padding: 0;
+  border: 0; border-radius: 50%; background: rgba(34, 32, 28, 0.06); cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+#win-close::before, #win-close::after {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 10px; height: 1.5px; border-radius: 1px;
+  background: var(--sub); transform: translate(-50%, -50%) rotate(45deg);
+}
+#win-close::after { transform: translate(-50%, -50%) rotate(-45deg); }
+#win-close:hover { background: rgba(34, 32, 28, 0.12); }
+
+main { display: flex; height: calc(100vh - 32px); }
+
+/* 左边的文件栏 */
+#files {
+  width: 176px; flex: none; overflow-y: auto;
+  padding: 12px 10px; border-right: 1px solid var(--line); background: var(--side);
+}
+/* 分组标题：名字 + 这一组有几个 */
+#files h2 {
+  display: flex; align-items: baseline; gap: 6px;
+  margin: 0 0 4px 8px; font-size: 11px; font-weight: 500; color: var(--sub);
+}
+#files .group-count { font-size: 11px; font-weight: 400; color: #a39b8c; }
+/* 两组之间那条线：只有一组时不画 */
+#files .divider { height: 0; margin: 10px 8px; border-top: 1px solid #e0d9cc; }
+#files ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+#files li {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: 6px; cursor: pointer;
+}
+#files li:hover { background: rgba(34, 32, 28, 0.04); }
+#files li.active {
+  background: var(--face);
+  box-shadow: inset 0 0 0 1px var(--line), 0 1px 3px rgba(34, 32, 28, 0.08);
+}
+.badge {
+  flex: none; width: 22px; height: 22px; border-radius: 4px; background: var(--badge);
+  color: var(--sub); font-size: 9px; font-weight: 500; line-height: 22px; text-align: center;
+}
+/* 类型块按类型着色（颜色全在这里，代码只挂 data-kind） */
+.badge[data-kind="word"] { background: #e2e8f1; color: #3b5b8c; }
+.badge[data-kind="ppt"] { background: #f3e3dc; color: #a24a2c; }
+.badge[data-kind="excel"] { background: #e0ece3; color: #2f6a45; }
+.badge[data-kind="pdf"] { background: #f1dfdf; color: #9a3b3b; }
+.badge[data-kind="image"] { background: #eae4f1; color: #67508c; }
+.badge[data-kind="web"] { background: #dfecea; color: #2f6966; }
+.badge[data-kind="text"] { background: #e9e3d6; color: #5f5a52; }
+.badge[data-kind="zip"] { background: #e9e3d6; color: #5f5a52; }
+.badge[data-kind="file"] { background: #e9e3d6; color: #5f5a52; }
+/* 材料那一组的类型块没有底色，只描一圈边，字色还是类型自己的颜色 */
+#files #material-list .badge { background: transparent; border: 1px solid #d6cfc1; line-height: 20px; }
+.row-text { min-width: 0; flex: 1; }
+.row-name { font-size: 12px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 材料的文件名暗一档（用户自己给的） */
+#material-list .row-name { color: var(--sub); }
+#files li.active .row-name { font-weight: 500; }
+.row-note { font-size: 10px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 画布和左栏用同一种细滚动条：没有上下箭头，滑块细一点 */
+#files, #canvas { scrollbar-width: thin; scrollbar-color: rgba(34, 32, 28, 0.2) transparent; }
+#files::-webkit-scrollbar, #canvas::-webkit-scrollbar { width: 10px; height: 10px; }
+#files::-webkit-scrollbar-track, #canvas::-webkit-scrollbar-track { background: transparent; }
+#files::-webkit-scrollbar-button, #canvas::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+#files::-webkit-scrollbar-thumb, #canvas::-webkit-scrollbar-thumb {
+  background: rgba(34, 32, 28, 0.2); border-radius: 5px;
+  border-left: 2px solid transparent; border-right: 2px solid transparent;
+  background-clip: padding-box;
+}
+#files::-webkit-scrollbar-thumb:hover, #canvas::-webkit-scrollbar-thumb:hover {
+  background: rgba(34, 32, 28, 0.35); background-clip: padding-box;
+}
+
+/* 右边：标题条、画布、底条 */
+#right { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 16px 10px 14px; border-bottom: 1px solid var(--line); background: var(--bg);
+}
+#head-text { flex: 1; min-width: 0; }
+#head-name { margin: 0; font-size: 13px; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#head-note { margin: 2px 0 0; font-size: 10px; color: var(--faint); }
+#head-actions { flex: none; display: flex; gap: 8px; flex-wrap: nowrap; }
+button.btn {
+  padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--face); color: var(--ink); font-size: 11px; line-height: 16px; cursor: pointer;
+  white-space: nowrap;
+}
+button.btn:hover { border-color: var(--sub); }
+
+/* 画布：占满上条和底条之间的全部高度，内容少也铺满 */
+#canvas {
+  flex: 1; min-height: 0; overflow: auto; padding: 16px;
+  background: var(--canvas); display: flex; flex-direction: column; align-items: safe center;
+}
+#loading { margin: 0; font-size: 12px; color: var(--sub); }
+#content {
+  flex: 1; width: 100%; display: flex; flex-direction: column;
+  align-items: safe center; gap: 16px;
+}
+#content img.pic { width: 100%; height: auto; display: block; }
+#content iframe.pdf { width: 100%; flex: 1; min-height: 0; border: 0; background: var(--face); }
+#content iframe.web { width: 100%; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: 6px; background: var(--face); }
+#content pre.text {
+  flex: 1; width: 100%; margin: 0; padding: 12px; box-sizing: border-box;
+  background: var(--face); border: 1px solid var(--line); border-radius: 8px;
+  font-family: var(--font); font-size: 12px; line-height: 20px; color: var(--ink);
+  white-space: pre-wrap; word-break: break-word;
+}
+/* 一页一张图：白底、一点阴影，页与页之间 16（#content 的 gap） */
+.page-card {
+  background: var(--face); border-radius: 4px; overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .08);
+}
+.page-card img { display: block; height: auto; }
+/* 页数太多时最后一页下面那一句 */
+.more { margin: 0; font-size: 11px; color: var(--sub); }
+.sheet-card {
+  padding: 12px; box-sizing: border-box; background: var(--face);
+  border-radius: 8px; box-shadow: 0 1px 4px rgba(0, 0, 0, .08);
+}
+.sheet-card img { display: block; margin: 0 auto; }
+
+/* 看不了的那一块 */
+.cannot {
+  width: 300px; margin: 40px auto; padding: 24px 20px; text-align: center;
+  background: var(--face); border: 1px solid var(--line); border-radius: 8px;
+}
+.cannot .badge { width: 40px; height: 40px; line-height: 40px; font-size: 11px; margin: 0 auto 12px; }
+.cannot h3 { margin: 0 0 6px; font-size: 13px; font-weight: 500; color: var(--ink); }
+.cannot p { margin: 0 0 14px; font-size: 11px; color: var(--faint); }
+.cannot button.btn { margin: 0; }
+
+/* 底条 */
+#foot {
+  display: flex; align-items: center; gap: 8px; min-height: 30px;
+  padding: 6px 16px 6px 14px; border-top: 1px solid var(--line);
+  background: var(--bg); font-size: 11px; color: var(--sub);
+}
+#sheets { display: flex; flex-wrap: wrap; gap: 6px; }
+#sheets .tab {
+  padding: 2px 8px; border-radius: 4px; border: 1px solid transparent;
+  color: var(--sub); cursor: pointer;
+}
+#sheets .tab:hover { background: rgba(34, 32, 28, 0.05); }
+#sheets .tab.active { background: var(--face); border-color: var(--line); font-weight: 500; color: var(--ink); }
+
+/* 底条右边：缩放（适应宽度、缩小、百分数、放大） */
+#zoom { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+#zoom .zbtn {
+  padding: 2px 8px; border-radius: 4px; border: 1px solid transparent;
+  color: var(--sub); cursor: pointer; font-size: 11px; line-height: 16px;
+}
+#zoom .zbtn:hover:not(:disabled) { background: rgba(34, 32, 28, 0.05); }
+/* 适应宽度开着时：跟底条的工作表标签一样（白底、线框、500 字重、墨色） */
+#zoom .zbtn.active { background: var(--face); border-color: var(--line); font-weight: 500; color: var(--ink); }
+#zoom .zbtn:disabled { color: #c6bfb3; cursor: default; }
+#zoom-value { min-width: 38px; text-align: center; font-size: 11px; color: var(--sub); }

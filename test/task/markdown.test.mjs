@@ -60,6 +60,62 @@ test('像 HTML 的字原样当字；代码块原样留着', () => {
   assert.equal(code[0].text, 'print(1)')
 })
 
+test('chart 代码块：合法的 JSON 出 chart 块，字段都带着', () => {
+  const json = JSON.stringify({
+    type: 'bar',
+    title: '三家门店本周客流',
+    unit: '人次',
+    categories: ['东湖店', '南站店', '西苑店'],
+    series: [{ name: '本周', data: [2160, 1980, 1650] }],
+    source: '门店客流.xlsx · Sheet1 B2:B4',
+  })
+  const blocks = markdownBlocks('```chart\n' + json + '\n```')
+  assert.equal(blocks.length, 1)
+  assert.equal(blocks[0].type, 'chart')
+  assert.equal(blocks[0].spec.type, 'bar')
+  assert.equal(blocks[0].spec.title, '三家门店本周客流')
+  assert.equal(blocks[0].spec.unit, '人次')
+  assert.deepEqual(blocks[0].spec.categories, ['东湖店', '南站店', '西苑店'])
+  assert.deepEqual(blocks[0].spec.series, [{ name: '本周', data: [2160, 1980, 1650] }])
+  assert.equal(blocks[0].spec.source, '门店客流.xlsx · Sheet1 B2:B4')
+})
+
+test('chart 代码块：折线、饼图也认；多组系列一起收下', () => {
+  const json = JSON.stringify({
+    type: 'line',
+    categories: ['周一', '周二'],
+    series: [{ name: '本周', data: [1, 2] }, { name: '上周', data: [3, 4] }],
+  })
+  const blocks = markdownBlocks('```chart\n' + json + '\n```')
+  assert.equal(blocks[0].type, 'chart')
+  assert.equal(blocks[0].spec.series.length, 2)
+  const pie = markdownBlocks('```chart\n{"type":"pie","categories":["甲"],"series":[{"name":"","data":[1]}]}\n```')
+  assert.equal(pie[0].type, 'chart')
+  assert.equal(pie[0].spec.type, 'pie')
+})
+
+test('chart 代码块：JSON 坏了、字段不对、长度对不上、没闭合，都退回普通代码块', () => {
+  const broken = markdownBlocks('```chart\n{"type":"bar",\n```')
+  assert.equal(broken[0].type, 'code')
+  assert.ok(broken[0].text.includes('{"type":"bar"'))
+  // 字段不对：type 不认识、categories 不是字符串、data 不是数
+  assert.equal(markdownBlocks('```chart\n{"type":"donut","categories":["甲"],"series":[{"data":[1]}]}\n```')[0].type, 'code')
+  assert.equal(markdownBlocks('```chart\n{"type":"bar","categories":[1],"series":[{"data":[1]}]}\n```')[0].type, 'code')
+  assert.equal(markdownBlocks('```chart\n{"type":"bar","categories":["甲"],"series":[{"data":["1"]}]}\n```')[0].type, 'code')
+  assert.equal(markdownBlocks('```chart\n{"type":"bar","categories":["甲"],"series":[]}\n```')[0].type, 'code')
+  // 每组 data 的长度得跟 categories 一样
+  assert.equal(markdownBlocks('```chart\n{"type":"bar","categories":["甲","乙"],"series":[{"data":[1]}]}\n```')[0].type, 'code')
+  // 块还没闭合（回话还在一个字一个字出来）：当普通代码块
+  const open = markdownBlocks('```chart\n{"type":"bar","categories":["甲"],"series":[{"data":[1]}]}')
+  assert.equal(open[0].type, 'code')
+})
+
+test('别的代码块不受影响：``` 还是代码块', () => {
+  const blocks = markdownBlocks('```json\n{"a":1}\n```')
+  assert.equal(blocks[0].type, 'code')
+  assert.equal(blocks[0].text, '{"a":1}')
+})
+
 test('空字符串不炸', () => {
   assert.deepEqual(markdownBlocks(''), [])
   assert.deepEqual(markdownBlocks(null), [])

@@ -243,3 +243,38 @@ test('菜单：既出过又记着错过的那天照旧能点', () => {
   days[0].click()
   assert.deepEqual(opened, [['t-ai', '2026-11-10']])
 })
+
+test('菜单：那期生成时的名字跟现在一样、或不知道，都照旧只写日期', () => {
+  const items = newsMenuTemplate({
+    topics: [{ id: 't-ai', name: 'AI 行业' }],
+    datesOf: () => ['2026-11-25', '2026-11-24'],
+    // 名字跟现在一样、不知道（null / 空串）
+    nameOf: (topic, date) => ({ '2026-11-25': 'AI 行业', '2026-11-24': null }[date] ?? ''),
+    read: {},
+    today: '2026-12-01',
+  })
+  assert.deepEqual(items[0].submenu.slice(0, 2).map((one) => one.label), ['11-25', '11-24'])
+})
+
+test('菜单：改过名字的那几期写「日期 · 当时的名字」，错过的那几天照旧不带', () => {
+  const opened = []
+  const items = newsMenuTemplate({
+    topics: [{ id: 't-net', name: '网络安全的新产品' }],
+    datesOf: () => ['2026-11-25', '2026-11-24', '2026-11-23'],
+    missedOf: () => ['2026-11-22'],
+    // 当时的名字：11-25 旧名字、11-23 跟现在一样；11-22 只是错过，不该报名字
+    nameOf: (topic, date) => ({ '2026-11-25': 'AI 行业', '2026-11-23': '网络安全的新产品', '2026-11-22': 'AI 行业' }[date] ?? ''),
+    read: {},
+    today: '2026-12-01',
+    onOpenIssue: (topicId, date) => opened.push([topicId, date]),
+  })
+  const days = items[0].submenu
+  assert.equal(days[0].label, '11-25 · AI 行业')
+  assert.equal(days[1].label, '11-24')
+  assert.equal(days[2].label, '11-23')
+  assert.equal(days[3].label, '11-22 未生成：桌伴未运行')
+  assert.equal(days[3].enabled, false)
+  // 带名字的那天照旧能点
+  days[0].click()
+  assert.deepEqual(opened, [['t-net', '2026-11-25']])
+})

@@ -10,6 +10,9 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { PAPER_FILE, appendReported, issueDir, loadTopics, readReported, todayString } from './topics.mjs'
+import { nameFromReply } from './name.mjs'
+import { markDelivered } from './runs.mjs'
+import { endRun, enqueueRun, startRun } from './status.mjs'
 import { hostOf, normalizeNewsLink } from './links.mjs'
 import { appRoot } from '../paths.mjs'
 import { codeOf, codeLine, errorCodeLine, stopText } from '../task/codes.mjs'
@@ -461,19 +464,89 @@ export function createNewsRunner(deps = {}) {
     }
   }
 
-  // 生成一份：不同的主题一起跑（DeepSeek 没有并发限制）。
-  // 同一个主题正在跑（定时那一路、设置页「现在生成」都算）就回那一次的 promise，不再开第二份：
-  // 两份会在同一个文件夹里、用同一个任务号跑，重试播报、日志这些文件都撞名
+  // 生成一份：一次只跑一个主题（设置页点「立即生成」时排队的那些等前一个跑完）。
+  // 同一个主题正在跑（定时那一路、设置页「立即生成」都算）就回那一次的 promise，不再开第二份：
+  // 两份会在同一个文件夹里、用同一个任务号跑，重试播报、日志这些文件都撞名。
   const running = new Map()
+  // 排队中的：{ topicId, reason, resolve }
+  const waiting = []
+  // 现在是不是有一个在跑
+  let busy = false
+
+  const nameOfTopic = (id) => loadTopics(topicsFileOf()).find((item) => item && item.id === id)?.name ?? ''
+
   function generate(topicId, options = {}) {
     const id = String(topicId ?? '')
     const already = running.get(id)
     if (already) return already
     const reason = options?.reason === 'now' ? 'now' : 'schedule'
-    const job = one(id, reason).finally(() => running.delete(id))
+    let settle = null
+    const job = new Promise((resolve) => { settle = resolve })
     running.set(id, job)
+    waiting.push({ topicId: id, reason, resolve: settle })
+    // 前面还有一个在跑：这一个先记成排队中（设置页的状态行写「排队中」）
+    if (busy) enqueueRun(id, nameOfTopic(id), reason)
+    drain()
     return job
   }
 
-  return { generate }
+  // 排着队的那些一个一个跑；跑完了记下出了几条（设置页状态行写「· N 条」）
+  function drain() {
+    if (busy || !waiting.length) return
+    const next = waiting.shift()
+    busy = true
+    startRun(next.topicId, nameOfTopic(next.topicId), next.reason)
+    Promise.resolve()
+      .then(() => one(next.topicId, next.reason))
+      .catch(() => ({ ok: false, topicId: next.topicId, date: '', files: [], items: 0, message: t('stops.newsError') }))
+      .then((result) => {
+        const runsFile = typeof deps.runsFile === 'function' ? deps.runsFile() : String(deps.runsFile ?? '')
+        if (result?.ok === true && runsFile) {
+          try { markDelivered(runsFile, next.topicId, now(), Number(result.items) || 0) } catch { /* 记不上不影响交工 */ }
+        }
+        endRun(next.topicId, result)
+        running.delete(next.topicId)
+        busy = false
+        next.resolve(result)
+        drain()
+      })
+  }
+
+  // 起名字：把那句话交给模型，要一个 4–8 个字的主题名。不挂工具、不进「全部对话」、不让 dsh 另起会话名。
+  // 回来的字只认最后一行、收拾干净（./name.mjs 的 nameFromReply）；没配模型、出错、超时都给空串（调用方留着本地规则那个）。
+  async function askName(want, options = {}) {
+    const text = String(want ?? '').trim()
+    if (!text || typeof deps.runTask !== 'function') return ''
+    const picked = typeof deps.model === 'function' ? deps.model(null) : null
+    if (!picked || picked.ok !== true) return ''
+    const workspace = join(rootOf(), '.naming')
+    try { mkdirSync(workspace, { recursive: true }) } catch { return '' }
+    const replies = []
+    const handle = deps.runTask({
+      taskId: `news-name-${now()}`,
+      workspace,
+      prompt: t('news.nameAsk', { want: text }),
+      apiKey: picked.apiKey,
+      env: picked.env,
+      patchTexts: picked.patchTexts,
+      model: picked.model,
+      vendor: picked.vendor,
+      title: false,
+      onEvent: (event) => { if (event?.type === 'reply') replies.push(String(event.text ?? '')) },
+    })
+    const waitMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 30_000
+    let timer = null
+    const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(null), waitMs) })
+    const end = await Promise.race([handle.done, timeout])
+    clearTimeout(timer)
+    if (!end) {
+      try { handle.cancel() } catch { /* 停不掉就算了 */ }
+      log('name-timeout', {})
+      return ''
+    }
+    if (end.status !== 'done') return ''
+    return nameFromReply(replies[replies.length - 1] || '')
+  }
+
+  return { generate, askName }
 }

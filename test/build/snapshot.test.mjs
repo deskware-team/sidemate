@@ -181,3 +181,12 @@ test('the scan covers the three notices too', () => {
     rmSync(target, { recursive: true, force: true })
   }
 })
+
+test('third-party bundles under app/vendor are copied but not scanned (they must stay byte-identical)', async () => {
+  const { scanSkipped } = await import('../../build/snapshot.mjs')
+  assert.equal(scanSkipped('app/vendor/mermaid/mermaid.min.js'), true)
+  assert.equal(scanSkipped('app/vendor/katex/katex.min.js'), true)
+  assert.equal(scanSkipped('app/pet/motion.mjs'), false)
+  assert.ok(INCLUDE.includes('docs/release-0.4.0.md'))
+  assert.ok(INCLUDE.includes('docs/release-0.4.0.en.md'))
+})

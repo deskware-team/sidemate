@@ -74,11 +74,27 @@ test('a newer version makes the old agreement stale', () => {
   const { dir, file } = tempFile()
   try {
     createConsent({ file }).agree({ terms: true, crossBorder: true })
-    const newer = createConsent({ file, version: '1.1' })
+    const newer = createConsent({ file, version: '1.2' })
     const status = newer.status()
     assert.equal(status.agreed, false)
     assert.equal(status.stale, true)
     assert.equal(status.version, TERMS_VERSION)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('an agreement from version 1.0 is stale after the terms are revised', () => {
+  const { dir, file } = tempFile()
+  try {
+    // 上一版（1.0）留下的同意记录：勾了两条，但记的版本对不上现在的
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, JSON.stringify({ version: '1.0', at: 1700000000000, terms: true, crossBorder: true }), 'utf8')
+    const consent = createConsent({ file })
+    const status = consent.status()
+    assert.equal(status.agreed, false)
+    assert.equal(status.stale, true)
+    assert.equal(status.version, '1.0')
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -130,7 +146,10 @@ test('the terms file ships with the package', () => {
     assert.ok(terms.includes(heading), `条款缺 ${heading}`)
   }
   assert.ok(terms.includes('ai-gateway.kilo.ai'))
-  assert.ok(terms.includes('境外'))
+  // 处理地点不由本软件界定（11-24 定）：条款只说交给 Kilo AI、以它的条款为准
+  assert.ok(terms.includes('处理地点'))
+  assert.equal(terms.includes('境外'), false)
+  assert.equal(terms.includes('出境'), false)
   assert.equal(terms.includes('美国'), false)
 })
 
@@ -140,9 +159,10 @@ test('the summary has five points and the last one shifts responsibility', () =>
   // 第一条说清 Kilo AI 是第三方，后面几条都直说 Kilo AI
   assert.ok(SUMMARY[0].includes('第三方（Kilo AI）'))
   for (const point of SUMMARY.slice(1)) assert.equal(point.includes('第三方'), false, point)
-  // 境外的说法跟条款全文一致：服务器「可能」在境外
-  assert.ok(SUMMARY[1].includes('可能位于境外'))
-  assert.ok(readTerms().includes('可能位于中华人民共和国境外'))
+  // 处理地点的说法跟条款全文一致：由 Kilo AI 决定，不写在哪
+  assert.ok(SUMMARY[1].includes('处理地点'))
+  assert.ok(readTerms().includes('处理地点'))
+  for (const point of SUMMARY) assert.equal(/境外|出境/.test(point), false, point)
   assert.equal(CHECKS.terms, '我已阅读并同意使用须知')
   assert.equal(CHECKS.crossBorder, '我同意将发送的内容传输至 Kilo AI 处理')
 })

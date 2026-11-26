@@ -58,7 +58,7 @@ test('起名那份补丁是全局的：dsh 一直开着，新闻那一轮自己�
   const launch = dshLaunch(base)
   // 起名那次调用是全局开的（一个 dsh 进程上跑好几个会话）
   assert.ok(patchFiles().some((file) => file.endsWith('title.patch.yml')))
-  assert.equal(launch.patches.length, 2, '会话补丁只有插话（含模式）和重试播报两份')
+  assert.equal(launch.patches.length, 3, '会话补丁只有插话（含模式）、重试播报和逐字流三份')
 })
 
 describe('真 dsh', { concurrency: 1 }, () => {
