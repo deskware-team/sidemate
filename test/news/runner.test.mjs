@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
 import { createNewsRunner } from '../../app/news/runner.mjs'
+import { onStatusChange, resetStatus, statusOf } from '../../app/news/status.mjs'
 import { createHistory } from '../../app/task/history.mjs'
 import { restoreTask } from '../../app/task/history-open.mjs'
 
@@ -20,7 +21,8 @@ function tempRoot() {
 
 // 一个标准主题
 function topic(patch = {}) {
-  return {
+  // nameOf 跟 want 一致：名字是照这句话起好的（不然读的时候会按本地规则重起）
+  const one = {
     id: 't-ai',
     name: 'AI 行业',
     want: '只关心模型发布和融资',
@@ -29,11 +31,12 @@ function topic(patch = {}) {
     enabled: true,
     ...patch,
   }
+  return { nameOf: one.want, ...one }
 }
 
 // 主题和整页设置写进 新闻.json
-function setup(root, { topics = [topic()], prefs = { catchUp: true, notify: true } } = {}) {
-  writeFileSync(join(root, '新闻.json'), JSON.stringify({ version: 1, topics, prefs }), 'utf8')
+function setup(root, { topics = [topic()], prefs = { catchUp: true, notify: true }, version = 2 } = {}) {
+  writeFileSync(join(root, '新闻.json'), JSON.stringify({ version, topics, prefs }), 'utf8')
 }
 
 // 算得通的模型选项
@@ -96,6 +99,7 @@ function makeRunner(root, overrides = {}) {
     history,
     log: (name, data) => logs.push({ name, data }),
     ...(overrides.onDone ? { onDone: overrides.onDone } : {}),
+    ...(overrides.runsFile ? { runsFile: overrides.runsFile } : {}),
   })
   return { runner, history, logs }
 }
@@ -190,16 +194,18 @@ test('新闻这一轮用默认模型：不传条目', async () => {
   }
 })
 
-test('主题的自动配置权限选「允许」：这一轮拿完全访问；默认（拒绝）的主题不拿', async () => {
+test('那一项的权限选「允许」：这一轮拿完全访问；默认（拒绝）不拿', async () => {
   const root = tempRoot()
   try {
-    setup(root, { topics: [topic({ permission: 'allow' }), topic({ id: 't-car', name: '汽车' })] })
+    setup(root, { topics: [topic({ permission: 'allow' })] })
     const runTask = fakeRunTask()
     const { runner } = makeRunner(root, { runTask })
     await runner.generate('t-ai')
+    assert.equal(runTask.calls[0].fullAccess, true, '允许：完全访问')
+    // 清单里永远只有一项：换成默认拒绝的那一项再跑一次
+    setup(root, { topics: [topic({ id: 't-car', name: '汽车' })] })
     await runner.generate('t-car')
-  assert.equal(runTask.calls[0].fullAccess, true, '允许：完全访问')
-  assert.equal(runTask.calls[1].fullAccess, false, '默认的拒绝：不拿完全访问')
+    assert.equal(runTask.calls[1].fullAccess, false, '默认的拒绝：不拿完全访问')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -301,7 +307,9 @@ test('给模型的话：让它自己找，不说不用联网，话里没有具�
     assert.equal(result.ok, true)
     assert.equal(runTask.calls.length, 1)
     const prompt = runTask.calls[0].prompt
-    assert.match(prompt, /AI 行业/)
+    // 主题名不单列进话里（名字是从那句话总结的，写两样模型会当成两个要求）
+    assert.doesNotMatch(prompt, /AI 行业/)
+    assert.match(prompt, /想看什么：只关心模型发布和融资/)
     assert.match(prompt, /只关心模型发布和融资/)
     assert.match(prompt, new RegExp(DATE))
     // 自己找、自己打开原文
@@ -563,23 +571,85 @@ function gatedRunTask(gate, order) {
   return runTask
 }
 
-test('两个不同的主题同时来：不排队，两个一起跑', async () => {
+test('0.3 的清单里两个主题：两个都留着，那句话写成「名字：想看什么」，各跑各的（0.4 无感升级）', async () => {
   const root = tempRoot()
   try {
-    setup(root, { topics: [topic(), topic({ id: 't-car', name: '汽车' })] })
+    setup(root, { topics: [topic(), topic({ id: 't-car', name: '汽车', want: '新车和降价' })], version: 1 })
+    const runTask = fakeRunTask()
+    const { runner } = makeRunner(root, { runTask })
+    const result = await runner.generate('t-car')
+    assert.equal(result.ok, true)
+    const raw = JSON.parse(readFileSync(join(root, '新闻.json'), 'utf8'))
+    assert.equal(raw.topics.length, 2, '两个主题都在')
+    assert.deepEqual(raw.topics.map((one) => one.want), ['AI 行业：只关心模型发布和融资', '汽车：新车和降价'])
+    assert.deepEqual(raw.topics.map((one) => one.name), ['AI 行业', '汽车'], '名字还是用户原来起的')
+    assert.ok(existsSync(join(root, '新闻.json.bak-0.4')), '原来的清单备份了')
+    // 给模型的话里只有那句话，没有单列的主题名
+    assert.match(runTask.calls[0].prompt, /想看什么：汽车：新车和降价/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('一次只跑一个主题：第二个排队，状态里写着谁在跑、谁在排；跑完记下出了几条', async () => {
+  const root = tempRoot()
+  resetStatus()
+  try {
+    setup(root, { topics: [topic(), topic({ id: 't-car', name: '汽车', want: '新车和降价' })] })
     let release = null
     const gate = new Promise((resolve) => { release = resolve })
-    const order = []
-    const { runner } = makeRunner(root, { runTask: gatedRunTask(gate, order) })
-    const one = runner.generate('t-ai')
-    const two = runner.generate('t-car')
+    const runTask = gatedRunTask(gate, [])
+    const runsFile = join(root, 'news-run.json')
+    const { runner } = makeRunner(root, { runTask, runsFile })
+    const seen = []
+    onStatusChange((snap) => seen.push(snap))
+    const first = runner.generate('t-ai', { reason: 'now' })
+    const second = runner.generate('t-car', { reason: 'now' })
     await new Promise((resolve) => setTimeout(resolve, 30))
-    // 不排队：第二个已经在跑了
-    assert.deepEqual(order, [`second ran news-t-car-${DATE}`])
+    assert.equal(runTask.calls.length, 1, '第二个还没开始')
+    assert.equal(statusOf('t-ai').state, 'running')
+    assert.equal(statusOf('t-ai').reason, 'now')
+    assert.equal(statusOf('t-car').state, 'queued')
     release()
-    const [first, second] = await Promise.all([one, two])
-    assert.equal(first.ok, true)
-    assert.equal(second.ok, true)
+    const [a, b] = await Promise.all([first, second])
+    assert.equal(a.ok, true)
+    assert.equal(b.ok, true)
+    assert.equal(runTask.calls.length, 2)
+    assert.equal(statusOf('t-ai'), null)
+    assert.equal(statusOf('t-car'), null)
+    assert.ok(seen.some((snap) => snap.ended?.topicId === 't-ai' && snap.ended.ok === true), '跑完那次通知里带着结果')
+    const runs = JSON.parse(readFileSync(runsFile, 'utf8'))
+    assert.equal(runs.delivered['t-ai'].count, a.items)
+  } finally {
+    resetStatus()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('起名字：把那句话交给模型，回来的字收拾干净；没模型、超时都给空串', async () => {
+  const root = tempRoot()
+  try {
+    setup(root)
+    const calls = []
+    const runTask = (options) => {
+      calls.push(options)
+      queueMicrotask(() => options.onEvent?.({ type: 'reply', text: '「网络安全新产品」。' }))
+      return { done: Promise.resolve({ status: 'done' }), cancel() {} }
+    }
+    const { runner } = makeRunner(root, { runTask })
+    assert.equal(await runner.askName('网络安全的新产品'), '网络安全新产品')
+    assert.match(calls[0].prompt, /4 到 8 个字的主题名/)
+    assert.match(calls[0].prompt, /网络安全的新产品/)
+    assert.equal(calls[0].title, false, '不让 dsh 另起会话名')
+    assert.equal(calls[0].mcpServers, undefined, '不挂外部工具')
+    // 没模型
+    const none = makeRunner(root, { runTask, model: () => ({ ok: false }) }).runner
+    assert.equal(await none.askName('网络安全的新产品'), '')
+    // 超时：停掉那一轮，给空串
+    let cancelled = false
+    const slow = makeRunner(root, { runTask: () => ({ done: new Promise(() => {}), cancel() { cancelled = true } }) }).runner
+    assert.equal(await slow.askName('网络安全的新产品', { timeoutMs: 20 }), '')
+    assert.equal(cancelled, true)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

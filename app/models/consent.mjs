@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { t } from '../copy/copy.mjs'
 
 // 条款全文随包发布，路径由本文件位置算出，不写死盘符
-export const TERMS_VERSION = '1.0'
+export const TERMS_VERSION = '1.1'
 export const TERMS_FILE = fileURLToPath(new URL('../legal/kilo-terms.md', import.meta.url))
 
 // 弹窗上的五条要点，逐字照抄，不改写

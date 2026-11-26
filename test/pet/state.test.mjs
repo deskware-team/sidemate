@@ -90,6 +90,32 @@ test('换个任务号也算开工了', () => {
   assert.equal(step.state.mode, 'work')
 })
 
+test('阶段：干活中记着，出了干活就清掉', () => {
+  const working = reduce(createState(), { type: 'progress', taskId: 't1', at, text: '在写' }).state
+  // 干活中还没记下阶段：先当「在读」
+  assert.equal(working.phase, 'read')
+  const write = reduce(working, { type: 'phase', taskId: 't1', at, phase: 'write' })
+  assert.equal(write.state.phase, 'write')
+  // 阶段只换阶段：不换状态、不弹通知
+  assert.equal(write.state.mode, 'work')
+  assert.equal(write.notify, false)
+  const think = reduce(write.state, { type: 'phase', taskId: 't1', at, phase: 'think' })
+  assert.equal(think.state.phase, 'think')
+  // 同一个阶段再来一遍：不换状态
+  const same = reduce(think.state, { type: 'phase', taskId: 't1', at, phase: 'think' })
+  assert.equal(same.state, think.state)
+  // 做完了：阶段清掉
+  const done = reduce(think.state, { type: 'end', taskId: 't1', at, status: 'done' })
+  assert.equal(done.state.phase, '')
+})
+
+test('几个任务同时跑：以最近一条阶段为准', () => {
+  const one = reduce(createState(), { type: 'progress', taskId: 't1', at, text: '' }).state
+  const two = reduce(one, { type: 'phase', taskId: 't2', at, phase: 'write' })
+  assert.equal(two.state.phase, 'write')
+  assert.equal(two.state.mode, 'work')
+})
+
 test('点小岛交给任务窗的：停在做完了 / 要你看一眼 / 没干成时是那一轮的 taskId，别的时候不带', () => {
   const done = reduce(createState(), { type: 'end', taskId: 'a', at, status: 'done' }).state
   assert.deepEqual(heldTask(done), { taskId: 'a' })

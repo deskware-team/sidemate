@@ -1,6 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
-import { dirname } from 'node:path'
-
+import { readRuns, writeRuns } from './runs.mjs'
 import { markMissed, missedDates } from './missed.mjs'
 import { todayString } from './topics.mjs'
 
@@ -126,28 +124,11 @@ export function missedRuns(topics, lastRuns = {}, now = Date.now(), known = {}) 
 }
 
 function readState(file) {
-  let raw = null
-  try {
-    raw = JSON.parse(readFileSync(file, 'utf8'))
-  } catch {
-    return {}
-  }
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
-  const source = raw.lastRuns && typeof raw.lastRuns === 'object' ? raw.lastRuns : {}
-  const result = {}
-  for (const [id, value] of Object.entries(source)) {
-    const ts = Number(value)
-    if (Number.isFinite(ts)) result[id] = ts
-  }
-  return result
+  return readRuns(file).lastRuns
 }
 
 function writeState(file, runs) {
-  const body = JSON.stringify({ version: 1, lastRuns: runs }) + '\n'
-  mkdirSync(dirname(file), { recursive: true })
-  const temp = `${file}.tmp`
-  writeFileSync(temp, body, 'utf8')
-  renameSync(temp, file)
+  writeRuns(file, { lastRuns: runs })
 }
 
 function resolveTopics(source) {

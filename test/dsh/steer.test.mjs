@@ -121,16 +121,19 @@ test('插件源码：路径按 payload 的实际位置填进去，不写死；�
   const source = steerPluginSource(rootsOf)
   assert.match(source, /resolve\('C:\/桌伴\/payload\/dsh\/node_modules'\)/)
   assert.match(source, /_sidemate\/steer/)
+  assert.match(source, /_sidemate\/preview/)
   assert.match(source, /agent\.steer\(message\)/)
   assert.equal(source.includes(KEY), false, '插件里不许出现钥匙')
   assert.equal(/apiKey|sk-[A-Za-z0-9]/.test(source), false, '插件里不许出现钥匙字段')
 })
 
-test('补丁文字：关掉原来的 acp 行，插桌伴自己的插件行', () => {
+test('补丁文字：关掉原来的 acp 行，插 Office 套件服务和桌伴自己的插件行', () => {
   const text = steerPatchYaml('C:/桌伴/patches/steer-plugin.mjs')
   assert.match(text, /- id: acp/)
   assert.match(text, /disabled: true/)
   assert.match(text, /- insert:/)
+  assert.match(text, /- id: office-kit/)
+  assert.match(text, /'@deepseek-ai\/dsh-office-kit'/)
   assert.match(text, /id: sidemate-acp/)
   assert.match(text, /name: "C:\/桌伴\/patches\/steer-plugin\.mjs"/)
   assert.match(text, /inject: \[acpAppStartup\]/)

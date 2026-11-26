@@ -43,7 +43,9 @@ const same = (state) => result(state)
 const foreign = (state, event) => !state.runId || event.taskId !== state.runId
 
 // 这几种给「去设置」，开的是设置窗的「模型」页
-const MODEL_SETTINGS = new Set(['key', 'consent', 'missing', 'model'])
+const MODEL_SETTINGS = new Set(['key', 'missing', 'model'])
+// 没同意使用须知（Kilo 须知升版后要重新同意）：给「使用须知」，点了弹须知窗，不是去设置
+const CONSENT = { action: 'consent', label: t('modelPage.kiloGuide') }
 
 // 统一的开跑：换状态、清旧按钮和 ask、记 prompt、给 start。选的模型只管这个任务，
 // 开工时交给 resolveModel；没选（null）就用清单默认。
@@ -521,7 +523,7 @@ export function reduceTask(state, event) {
       if (!line || state.phase !== 'working') return result(state, state.phase === 'working' ? 'work' : null)
       return result(setStep(state, line, event.at), 'work')
     }
-    // 壳自己插进来的一句话：工具没调通、模型看不了文件里的图。
+    // 壳自己插进来的一句话：模型看不了文件里的图、这一轮没带上的外部工具服务。
     // 不是它说的话，灰字单独一行，可以带按钮
     case 'note': {
       if (foreign(state, event) || typeof event.text !== 'string' || !event.text.trim()) return same(state)
@@ -589,6 +591,8 @@ export function reduceTask(state, event) {
       if (event.reason === 'busy' || event.reason === 'server' || event.reason === 'noreply') return enterPaused(state, text, code, raw)
       // 回的话是坏的：点重来，老这样就换模型
       if (event.reason === 'badreply') return enterError(state, text, [RETRY, SWAP_MODEL], code, raw)
+      // 没同意使用须知：给「使用须知」那个钮，点了弹须知窗（round 带着，页面拿它认这一轮）
+      if (event.reason === 'consent') return enterError(state, text, [{ ...CONSENT, round: state.round }, RETRY], code, raw)
       return enterError(state, text, MODEL_SETTINGS.has(event.reason) ? [SETTINGS, RETRY] : [RETRY], code, raw)
     }
     case 'permission':

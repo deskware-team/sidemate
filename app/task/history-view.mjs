@@ -87,9 +87,36 @@ export function dropdownGroups(items, currentId, now = Date.now()) {
       id: String(one?.id ?? ''),
       title: String(one?.title ?? ''),
       time: timeLabel(Number(one?.updatedAt) || 0, now),
+      status: markerStatus(one),
       now: one?.id === currentId,
     })),
   }))
+}
+
+// 每条对话现在的状态：id → 'running'（在跑）、'unread'（在后台跑完了、还没回来看）、''（没有）
+// rows 是每条对话的样子：{ id, running, shown }。在眼前看着的算看过，不算 unread。
+export function statusMap(rows) {
+  const out = {}
+  for (const one of Array.isArray(rows) ? rows : []) {
+    const id = String(one?.id ?? '')
+    if (!id) continue
+    if (one?.running === true) out[id] = 'running'
+    else if (one?.shown !== true) out[id] = 'unread'
+    else out[id] = ''
+  }
+  return out
+}
+
+// 状态签名变了没有：变了才重新要一遍列表（每个字都来一次太吵）
+export function statusChanged(prev, next) {
+  return String(prev ?? '') !== String(next ?? '')
+}
+
+// 标记长什么样：在跑的是个转圈，在后台跑完还没看的是个绿点，其余没有
+export function markerOf(status) {
+  if (status === 'running') return { cls: 'run', label: t('history.statusRunning') }
+  if (status === 'unread') return { cls: 'unread', label: t('history.statusUnread') }
+  return null
 }
 
 // 「全部对话」页的行：右边任务写文件夹和时间两截（页面隔开摆，中间不用「·」），新闻订阅写「N 条」
@@ -99,11 +126,18 @@ export function pageGroups(items, now = Date.now()) {
     rows: group.items.map((one) => ({
       id: String(one?.id ?? ''),
       title: String(one?.title ?? ''),
+      status: markerStatus(one),
       meta: one?.kind === 'news'
         ? [newsMeta(one, now)]
         : [one?.folderName ? String(one.folderName) : '', timeLabel(Number(one?.updatedAt) || 0, now)].filter(Boolean),
     })),
   }))
+}
+
+// 行里的状态标记：只认 running 和 unread，别的当没有
+function markerStatus(one) {
+  const status = String(one?.status ?? '')
+  return status === 'running' || status === 'unread' ? status : ''
 }
 
 // 新闻订阅那行右边写什么：数得出条数就写「N 条」，数不出来就写时间，不拿消息条数糊弄。

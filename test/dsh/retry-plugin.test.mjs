@@ -2,7 +2,7 @@
 // 和桌伴这边的读法（一行一行读，读到哪儿记到哪儿，次数不漏号）。
 
 import assert from 'node:assert/strict'
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { after } from 'node:test'
@@ -101,6 +101,28 @@ test('桌伴读播报文件：一条一行，读到哪儿记到哪儿，不漏�
     await new Promise((resolve) => setTimeout(resolve, 120))
     assert.deepEqual(seen.map((one) => one.retry), [1, 2, 3])
     assert.equal(seen[2].kind, 'noreply')
+  } finally {
+    tail.stop()
+  }
+})
+
+test('文件一出现就一直开着同一个句柄读：不再按路径反复打开（改了名也还接着读原来那个）', () => {
+  const dir = scratch('sidemate-retry-')
+  const path = join(dir, 'stream.log')
+  const moved = join(dir, 'moved.log')
+  const seen = []
+  const tail = createRetryTail(path, (line) => seen.push(JSON.parse(line)), 60_000)
+  try {
+    tail.poll()
+    assert.deepEqual(seen, [], '还没有文件：不报错')
+    appendFileSync(path, `${JSON.stringify({ n: 1 })}\n`, 'utf8')
+    tail.poll()
+    assert.deepEqual(seen.map((one) => one.n), [1])
+    // 换了名字：按路径找已经找不到了，开着的句柄照样读到后写的那行
+    renameSync(path, moved)
+    appendFileSync(moved, `${JSON.stringify({ n: 2 })}\n`, 'utf8')
+    tail.poll()
+    assert.deepEqual(seen.map((one) => one.n), [1, 2])
   } finally {
     tail.stop()
   }

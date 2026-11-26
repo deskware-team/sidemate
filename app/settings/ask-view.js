@@ -21,7 +21,8 @@ export async function withAsk(back, redo) {
   return redo(true)
 }
 
-export function openAskDialog({ text, ok, cancel } = {}) {
+// danger: true 时主钮是危险操作那一下（红底），默认焦点放在「取消」上，误按回车不删。
+export function openAskDialog({ text, ok, cancel, danger = false } = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement('div')
     overlay.className = 'overlay'
@@ -41,7 +42,7 @@ export function openAskDialog({ text, ok, cancel } = {}) {
     release = stack.push({ close: () => done(false) })
     const okButton = document.createElement('button')
     okButton.type = 'button'
-    okButton.className = 'btn'
+    okButton.className = danger ? 'btn danger-ok' : 'btn'
     okButton.textContent = ok || ''
     okButton.addEventListener('click', () => done(true))
     const cancelButton = document.createElement('button')
@@ -53,5 +54,6 @@ export function openAskDialog({ text, ok, cancel } = {}) {
     dialog.append(line, actions)
     overlay.append(dialog)
     document.body.append(overlay)
+    if (danger) cancelButton.focus()
   })
 }

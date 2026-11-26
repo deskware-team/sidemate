@@ -51,6 +51,10 @@ jobs:
 
       - name: 装依赖
         run: npm ci
+      # 用的这版 Electron（45）是第一次 require('electron') 时才下本体。测试是好几个文件并行跑，
+      # 同时去下会互相踩，输的那个文件直接挂。先在这里下好一次。
+      - name: 下好 Electron
+        run: node -e "console.log(require('electron'))"
 
       # 测试跟 ci.yml 跑的一样：不需要 payload 的那部分。
       - name: 测试

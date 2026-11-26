@@ -1,4 +1,4 @@
-// 任务窗的桥，十四个通道：task:ready 拿当前视图，task:view 收主进程推来的新视图，
+// 任务窗的桥，十五个通道：task:ready 拿当前视图，task:view 收主进程推来的新视图，
 // task:act 发用户的动作，task:drop 发拖进来的文件（路径用 webUtils 取，Electron 32 起没有 File.path），
 // task:paste 发贴进来的图片 / 长文字，task:restore 改回文字（取回存下来的那一段），
 // task:thumb 拿小签缩略图，task:open-chip 点气泡里的小块（开工作区里的那份拷贝，主进程核路径），
@@ -8,7 +8,11 @@
 // task:link 让主进程用系统浏览器开回话里的链接（主进程再核一遍协议），
 // task:models 拿「换模型」的列表和当前选的，task:consent 弹 Kilo 模型使用须知，
 // task:history-list 拿历史对话的列表（能搜能筛，按天分好组），task:history-open 打开一条历史对话，
-// task:hide 收起任务窗（页面里按 Esc，弹层都没开的时候）。
+// task:hide 收起任务窗（页面里按 Esc，弹层都没开的时候），
+// task:card-menu 成品卡上点右键，弹系统原生菜单（主进程弹，页面只发路径），
+// task:chart-menu 图上点右键，弹系统原生菜单（另存为图片 / 复制图片），
+// task:chart-export 主进程让页面把那张图导成 PNG，task:chart-image 页面把导好的 PNG 交回来。
+// task:image 核对话里图片的地址（本地文件得在工作区里），task:image-menu 图上点右键弹菜单。
 
 const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
@@ -34,4 +38,10 @@ contextBridge.exposeInMainWorld('task', {
   historyList: (payload) => ipcRenderer.invoke('task:history-list', payload),
   historyOpen: (id) => ipcRenderer.invoke('task:history-open', { id }),
   hide: () => ipcRenderer.send('task:hide'),
+  cardMenu: (path) => ipcRenderer.send('task:card-menu', { path }),
+  chartMenu: (payload) => ipcRenderer.send('task:chart-menu', { kind: payload?.kind, title: payload?.title }),
+  onChartExport: (fn) => ipcRenderer.on('task:chart-export', (_event, payload) => fn(payload)),
+  chartImage: (payload) => ipcRenderer.invoke('task:chart-image', { action: payload?.action, dataUrl: payload?.dataUrl }),
+  image: (url) => ipcRenderer.invoke('task:image', { url }),
+  imageMenu: (payload) => ipcRenderer.send('task:image-menu', payload),
 })

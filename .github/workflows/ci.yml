@@ -51,6 +51,10 @@ jobs:
         run: |
           npm install -g npm@11.19.1
           npm ci
+      # 用的这版 Electron（45）是第一次 require('electron') 时才下本体。测试是好几个文件并行跑，
+      # 同时去下会互相踩，输的那个文件直接挂。先在这里下好一次。
+      - name: 下好 Electron
+        run: node -e "console.log(require('electron'))"
 
       # dsh、cite 和 workspace/escape 要先打出 payload（几百 MB），不在这里跑。
       - name: 测试

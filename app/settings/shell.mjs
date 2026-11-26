@@ -21,20 +21,22 @@ import { loginItemOpen, readLoginItem, setLoginItem } from '../main/login-item.m
 import { appPaths, appRoot, dataPaths, ensureDataDir } from '../paths.mjs'
 import { modelFiles } from '../models/files.mjs'
 import { openKeyring } from '../models/system-crypto.mjs'
-import { generate as generateNews } from '../news/bridge.mjs'
+import { generate as generateNews, nameTopic, openIssue } from '../news/bridge.mjs'
+import { onStatusChange as onNewsStatus } from '../news/status.mjs'
 import { iconPath } from '../assets/icon.mjs'
 import { DOCS, SITE_URL, SOURCE_URL, consentLine, docPath, isSourceUrl } from './about.mjs'
 import { addKiloEntry, chooseDefault, guideAction, modelRows, removeCustom, removeKey, removeKilo, removeModel, rowsWarning, setConcurrency } from './models.mjs'
 import { dialogPayload, probeInput, testAndSave } from './custom.mjs'
 import {
-  failedRows,
   loadNewsPrefs,
+  needsName,
   newsFile,
   newsView as buildNewsView,
   removeNewsTopic,
+  saveNewsForm,
   saveNewsPrefs,
-  saveNewsTopic,
   setNewsEnabled,
+  setNewsPermission,
 } from './news.mjs'
 import {
   abilitiesPaths,
@@ -62,6 +64,13 @@ let usageStore = null
 let keyring = null
 // 内容区基准尺寸（CSS 像素）：字号档位放大的是它，超过工作区就贴工作区
 const BASE_SIZE = { width: 720, height: 592 }
+
+// 新闻那一页要重画：开始生成、排队、跑完、名字起好了都推一声，页面收到就重新要一遍这一页。
+// payload 里带着跑完那次的结果（{ id, ok, message }），页面用它写卡片下面那句交代或红字。
+export function newsNotify(payload = {}) {
+  if (win && !win.isDestroyed()) win.webContents.send('settings:news-changed', payload)
+}
+onNewsStatus(() => newsNotify({}))
 
 // 设置窗的日志：界面上报错只说是哪一类（文件过大、配置错误……），哪个文件、哪条规矩没过记在这里。
 // 跟 task.log 放在一起（程序数据目录 data\ 下的 settings.log），不写密钥。
@@ -431,24 +440,40 @@ function bind() {
     return { ...view, ...extra }
   }
   ipcMain.handle('settings:news-list', () => newsPage())
+  // 存一张卡：想看什么、频率和时间都走这一个（页面上停笔 600ms 或失焦才调）；没有 id 就是新建。
+  // 那句话变了：名字先按本地规则顶上，后台再问模型要一个（回来会推 settings:news-changed）
   ipcMain.handle('settings:news-save', (_event, form) => {
-    const back = saveNewsTopic(newsFile(), form)
-    return newsPage({ ok: back.ok, message: back.message, errors: back.errors, topic: back.topic })
+    const back = saveNewsForm(newsFile(), form)
+    if (back.ok && back.topic && needsName(back.topic)) nameTopic(back.topic.id)
+    return newsPage({ ok: back.ok, message: back.message, errors: back.errors, savedId: back.topic?.id || '' })
   })
-  // 「现在生成」：走新闻后台那座桥。跑完了重画这一页，失败的那一行末尾写红字。
-  ipcMain.handle('settings:news-generate', async (_event, topicId) => {
-    const id = String(topicId ?? '')
-    const result = await generateNews(id)
-    const view = newsPage({ ok: result?.ok === true, message: result?.message || '' })
-    if (result?.ok !== true) view.rows = failedRows(view.rows, id, result?.message)
-    return view
-  })
+  // 删一张卡：页面上先问过了；只删订阅，已经生成的那几期不动
   ipcMain.handle('settings:news-remove', (_event, id) => {
     const back = removeNewsTopic(newsFile(), id)
     return newsPage({ ok: back.ok, message: back.message, errors: back.errors })
   })
+  // 「立即生成」：交给新闻后台就回来，不等它跑完。正在生成 / 排队中 / 跑完了都由
+  // settings:news-changed 推过来（页面收到就重新要一遍这一页）；失败那句红字跟着跑完那次推过来。
+  ipcMain.handle('settings:news-generate', (_event, topicId) => {
+    const id = String(topicId ?? '')
+    void generateNews(id).then((result) => {
+      if (result?.ok === true) newsNotify({ id, ok: true, message: String(result.message || '') })
+      else newsNotify({ id, ok: false, message: String(result?.message || '') })
+    })
+    return newsPage()
+  })
+  // 「看看」：打开这个主题今天那一份（跟右键菜单点开走同一条路）
+  ipcMain.handle('settings:news-look', (_event, id, date) => {
+    openIssue(id, date)
+    return { ok: true }
+  })
   ipcMain.handle('settings:news-toggle', (_event, id, enabled) => {
     const back = setNewsEnabled(newsFile(), id, enabled === true)
+    return newsPage({ ok: back.ok, message: back.message, errors: back.errors })
+  })
+  // 权限开关：开 = allow，关 = deny（默认）
+  ipcMain.handle('settings:news-permission', (_event, allowed) => {
+    const back = setNewsPermission(newsFile(), allowed === true)
     return newsPage({ ok: back.ok, message: back.message, errors: back.errors })
   })
   // 整页那两项设置：错过补不补、好了说不说

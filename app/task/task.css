@@ -13,6 +13,7 @@
   --line: #e3ded3;
   --red: #c53a22;
   --red-soft: #f8e5df; /* 报错横幅的底色 */
+  --green: #3f8f5a; /* 「有新结果」那个小绿点 */
   /* 小岛头像的墨色和眼睛，照 app/pet/theme.mjs */
   --ava-ink: #1f1d1a;
   --ava-eye: #f5f1e8;
@@ -78,13 +79,13 @@ button { font: inherit; cursor: pointer; color: inherit; background: none; borde
 /* 下拉开着的时候胶囊描一圈深边 */
 #where:has(#histmenu:not([hidden])) #where-btn { box-shadow: inset 0 0 0 1px var(--ink); }
 #topright { flex: none; display: flex; align-items: center; gap: 4px; }
-/* 「在资源管理器里打开」的小图标按钮 */
-#openfolder {
+/* 「预览」的小图标按钮（这次对话有成品或材料才露出来） */
+#previewbtn {
   flex: none; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
   border-radius: var(--radius); color: var(--ink-soft);
 }
-#openfolder:hover { background: var(--card); }
-#openfolder svg { pointer-events: none; }
+#previewbtn:hover { background: var(--card); }
+#previewbtn svg { pointer-events: none; }
 #newtask { flex: none; font-size: 12px; line-height: 14px; color: var(--ink); padding: 6px 10px; border-radius: var(--radius); }
 #newtask:hover { background: var(--card); }
 #newtask[disabled] { color: var(--ink-faint); cursor: default; }
@@ -115,7 +116,15 @@ button { font: inherit; cursor: pointer; color: inherit; background: none; borde
 }
 .hrow:hover { background: var(--paper); }
 .hrow .htitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; line-height: 16px; }
-.hrow .hmeta { flex: none; font-size: 11px; line-height: 13px; color: var(--ink-soft); }
+.hrow .hmeta { flex: none; display: inline-flex; align-items: center; font-size: 11px; line-height: 13px; color: var(--ink-soft); }
+/* 状态标记：在跑的是个小转圈，在后台跑完还没看的是个小绿点（都在时间左边，间距 6px） */
+.hrow .hmark { flex: none; }
+.hrow .hmark.run { width: 10px; height: 10px; border: 1.5px solid var(--ink-soft); border-top-color: transparent; border-radius: 50%; animation: hmark-spin 0.9s linear infinite; }
+.hrow .hmark.unread { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.hrow .hmeta > .hmark + span { margin-left: 6px; }
+/* 整页那行：文件夹和标记之间也是 6px（.parts 本来给 8px，这里盖掉） */
+.hrow .hmeta.parts > span + .hmark { margin-left: 6px; }
+@keyframes hmark-spin { to { transform: rotate(360deg); } }
 /* 当前那条：底色跟面板一样，只有标题 500，右边时间还是原字重 */
 .hrow.now { background: var(--paper); }
 .hrow.now .htitle { font-weight: 500; }
@@ -226,6 +235,58 @@ button { font: inherit; cursor: pointer; color: inherit; background: none; borde
 .md table { border-collapse: collapse; margin: 6px 0; font-size: 13px; width: 100%; }
 .md th, .md td { border: 1px solid var(--line); padding: 4px 6px; text-align: left; }
 .md th { background: var(--paper); }
+
+/* 对话里的图片：最多占满气泡，高度按比例，圆角 6；点一下在预览窗里看。
+   显示不出来的时候是一行灰字「[说明]」 */
+.md .mdimg { display: inline-block; max-width: 100%; vertical-align: bottom; }
+.md .mdimg .mdpic { display: block; max-width: 100%; height: auto; border-radius: var(--radius-sm); cursor: pointer; }
+.md .mdimg.mdfail { color: var(--ink-faint); font-size: 12px; }
+
+/* 公式：单独一段的居中显示，行内的跟着字走；画不出来时是原样的字 */
+.md .math-block { display: block; text-align: center; margin: 6px 0; overflow-x: auto; }
+.md .math-inline { display: inline; }
+.md .math-block .katex-display { margin: 0; }
+
+/* 统计图：模型在回话里给的 chart 代码块画成的图。颜色只用任务窗这几个变量，不自己造色。
+   宽度跟着气泡走：SVG 用 viewBox，样式只写 class（页面 CSP 不许内联样式） */
+.ch { margin: 8px 0; }
+.ch-title { font-size: 13px; line-height: 18px; font-weight: 500; color: var(--ink); margin-bottom: 2px; }
+.ch-svg { display: block; width: 100%; height: auto; }
+.ch-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 11px; line-height: 16px; color: var(--ink-soft); }
+.ch-item { display: inline-flex; align-items: center; gap: 5px; }
+.ch-key { flex: none; width: 10px; height: 10px; border-radius: 2px; }
+.ch-source { margin-top: 4px; font-size: 11px; line-height: 16px; color: var(--ink-faint); }
+/* 四套颜色：强调红、墨色、次墨、淡墨 */
+.c0 { fill: var(--red); }
+.c1 { fill: var(--ink); }
+.c2 { fill: var(--ink-soft); }
+.c3 { fill: var(--ink-faint); }
+.ch-key.c0 { background: var(--red); }
+.ch-key.c1 { background: var(--ink); }
+.ch-key.c2 { background: var(--ink-soft); }
+.ch-key.c3 { background: var(--ink-faint); }
+/* 折线图：线是彩色的，点也是（点外面描一圈纸色，多条线叠着也分得开） */
+.s0 { stroke: var(--red); }
+.s1 { stroke: var(--ink); }
+.s2 { stroke: var(--ink-soft); }
+.s3 { stroke: var(--ink-faint); }
+.ch-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.ch-dot.s0 { fill: var(--red); stroke: var(--paper); }
+.ch-dot.s1 { fill: var(--ink); stroke: var(--paper); }
+.ch-dot.s2 { fill: var(--ink-soft); stroke: var(--paper); }
+.ch-dot.s3 { fill: var(--ink-faint); stroke: var(--paper); }
+/* 网格、轴、字 */
+.ch-grid { stroke: var(--line); stroke-width: 1; }
+.ch-axis { stroke: var(--ink-faint); stroke-width: 1; }
+.ch-tick, .ch-unit, .ch-cat, .ch-val, .ch-pct { font-family: var(--font); }
+.ch-tick, .ch-unit { fill: var(--ink-soft); font-size: 11px; }
+.ch-cat { fill: var(--ink); font-size: 11px; }
+.ch-val { fill: var(--ink-soft); font-size: 10px; }
+.ch-pct { fill: var(--ink-soft); font-size: 11px; }
+
+/* 流程图：对话里的 mermaid 代码块画成的图。比气泡宽就在块里横向滚动，不缩得看不清 */
+.mm { margin: 8px 0; overflow-x: auto; }
+.mm svg { display: block; max-width: none !important; }
 
 /* 产出卡：跟着回答下面 */
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; cursor: grab; }
@@ -473,4 +534,6 @@ button { font: inherit; cursor: pointer; color: inherit; background: none; borde
   #panel.enter, #panel.leave { animation: none; }
   #inputwrap.grow, #inputwrap.shrink { transition: none; }
   #inputwrap.grow #chiprow, #inputwrap.shrink #chiprow { animation: none; }
+  /* 减少动画：转圈不转了，变成一个同色的小圆点 */
+  .hrow .hmark.run { animation: none; border: 0; width: 6px; height: 6px; background: var(--ink-soft); }
 }

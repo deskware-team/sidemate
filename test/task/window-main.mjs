@@ -29,7 +29,7 @@ const CARD = OUT + '/本周周报.docx'
 // 很长的文件夹名：胶囊不撑破，▾ 还在
 const LONG_FOLDER = 'C:/Users/slow/Desktop/' + '很长很长的文件夹名字'.repeat(8)
 const LONG = '一二三四五六七八九十'.repeat(12) // 120 个汉字
-const OPTS = { root: 'C:/Users/slow/桌伴', recent: ['C:/Users/slow/Desktop/本周材料', 'C:/Users/slow/Desktop/三季度汇报材料', 'C:/Users/slow/Documents/年度总结材料'] }
+const OPTS = { root: 'C:/Users/slow/桌伴', recent: ['C:/Users/slow/Desktop/本周材料', 'C:/Users/slow/Desktop/三季度汇报材料', 'C:/Users/slow/Documents/年度总结材料'], preview: { path: FOLDER, count: 3 } }
 const RECENT_OPTS = { ...OPTS, recentTasks: [{ dir: 'C:/Users/slow/桌伴/任务/2026-11-05-总结这些形成文献综述', out: 'C:/Users/slow/桌伴/任务/2026-11-05-总结这些形成文献综述', name: '11-05 总结这些形成文献综述', mtime: 1 }], allTasks: 'C:/Users/slow/桌伴/任务' }
 const usage = (extra = {}) => ({ at: Date.UTC(2026, 10, 6, 12, 0, 0), inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, searches: 0, ...extra })
 
@@ -278,7 +278,7 @@ const CLICKS = {
     tags[0].click()
     const items = [...document.querySelectorAll('#tagmenu button')].map((one) => one.textContent)
     document.querySelectorAll('#tagmenu button')[0].click()
-    document.querySelector('#openfolder').click()
+    document.querySelector('#previewbtn').click()
     document.querySelector('#where-btn').click()
     return new Promise((resolve) => setTimeout(() => {
       const row = document.querySelector('#histmenu .hrow[data-id]')
@@ -352,7 +352,7 @@ const DRAG = `(() => {
 // 不带 preload 的窗里点一遍、拖一遍：console 里不该有 error
 const NOBRIDGE = `(() => {
   document.querySelector('#send').click()
-  document.querySelector('#openfolder').click()
+  document.querySelector('#previewbtn').click()
   document.querySelector('#where-btn').click()
   document.querySelector('#newtask').click()
   document.querySelector('#addfile').click()
@@ -714,7 +714,7 @@ async function main() {
   checks.openClicks = await pushClick('连推-做完了', scene5(), openBtn)
   checks.stopClicks = await pushClick('连推-干活中', working, 'document.querySelector("#stop")')
 
-  // 点击区域（真鼠标）：胶囊整块（左缘内 4px、正中、右缘内 4px）都弹历史下拉、都不发 open-folder；右边「打开文件夹」的小图标才发 open-folder；搜框上缘内 2px 点进输入、右键小签弹出菜单
+  // 点击区域（真鼠标）：胶囊整块（左缘内 4px、正中、右缘内 4px）都弹历史下拉、都不发 preview-folder；右边「预览」的小图标才发 preview-folder；搜框上缘内 2px 点进输入、右键小签弹出菜单
   const ptAt = (expr, fx, fy) => w.executeJavaScript(`(() => { const r = (${expr}).getBoundingClientRect(); return { x: Math.round(r.left + (${fx})), y: Math.round(r.top + (${fy})) } })()`)
   const realClick = async (pt, button = 'left') => {
     w.sendInputEvent({ type: 'mouseDown', x: pt.x, y: pt.y, button, clickCount: 1 })
@@ -726,7 +726,7 @@ async function main() {
     await w.executeJavaScript('document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))'); await sleep(150)
   }
   await push('点击区', ready)
-  // 胶囊整块：三个位置都弹历史下拉，都不发 open-folder
+  // 胶囊整块：三个位置都弹历史下拉，都不发 preview-folder
   checks.hits.capsule = {}
   for (const [name, fx] of [['left', 4], ['mid', 'r.width / 2'], ['right', 'r.width - 4']]) {
     await closeMenu()
@@ -739,10 +739,10 @@ async function main() {
     }
   }
   await closeMenu()
-  // 右边的小图标才发 open-folder
+  // 右边的小图标才发 preview-folder
   const openBefore = acts.length
-  await realClick(await ptAt('document.querySelector("#openfolder")', 'r.width / 2', 'r.height / 2'))
-  checks.hits.openfolder = acts.slice(openBefore).map((one) => one.action)
+  await realClick(await ptAt('document.querySelector("#previewbtn")', 'r.width / 2', 'r.height / 2'))
+  checks.hits.previewbtn = acts.slice(openBefore).map((one) => one.action)
   // 胶囊的样子：宽 ≥ 120、高 32；五点打点都落在按钮自己身上
   const CAPSULE_BOX = `(() => { const r = document.querySelector('#where-btn').getBoundingClientRect()
     const c = document.querySelector('#where-caret').getBoundingClientRect()
@@ -752,7 +752,7 @@ async function main() {
     return pts.map(([x, y]) => { const hit = document.elementFromPoint(Math.round(x), Math.round(y)); return hit ? (hit.id || hit.tagName) : '' }) })()`
   checks.hits.capsuleBox = await w.executeJavaScript(CAPSULE_BOX)
   checks.hits.capsuleHit = await w.executeJavaScript(HIT_POINTS('#where-btn'))
-  checks.hits.openHit = await w.executeJavaScript(HIT_POINTS('#openfolder'))
+  checks.hits.openHit = await w.executeJavaScript(HIT_POINTS('#previewbtn'))
   // 很长的文件夹名：胶囊不超 240，▾ 还在
   const longView = JSON.parse(JSON.stringify(scene5()))
   longView.top.path = { text: LONG_FOLDER, title: LONG_FOLDER, open: LONG_FOLDER }

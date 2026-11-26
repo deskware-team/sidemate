@@ -2,22 +2,24 @@ import { app, powerMonitor, shell } from 'electron'
 import { installEditMenu } from './edit-menu.mjs'
 import { appendFileSync, mkdirSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
+import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runUninstallConfirm, wantsUninstallConfirm } from '../uninstall/shell.mjs'
 import { abilitiesForTask, abilityFiles, withAbilities } from '../abilities/launch.mjs'
 import { begin } from '../byok/shell.mjs'
-import { openSettings } from '../settings/shell.mjs'
+import { newsNotify, openSettings } from '../settings/shell.mjs'
 import { createVault } from '../byok/vault.mjs'
 import { applyLoginItem } from './login-item.mjs'
 import { islandClick, modelConfigured } from './first-run.mjs'
 import { startupPlan } from './startup.mjs'
 import { runTask, setAcpRouteProvider, setDaemonEnvProvider, startDaemon, startTempSweep, stopDaemon, writeGlobalConfig, restartDaemon, daemonState } from '../dsh/index.mjs'
-import { setGenerator } from '../news/bridge.mjs'
+import { setGenerator, setNamer, setOpener } from '../news/bridge.mjs'
 import { createNewsRunner } from '../news/runner.mjs'
 import { createScheduler } from '../news/schedule.mjs'
+import { onStatusChange as onNewsStatus } from '../news/status.mjs'
 import { issueDir, loadNewsPrefs, loadTopics } from '../news/topics.mjs'
-import { newsFile } from '../settings/news.mjs'
+import { needsName, newsFile, renameTopic } from '../settings/news.mjs'
 import { createHistory } from '../task/history.mjs'
 import { startTask } from '../task/shell.mjs'
 import { modelFiles } from '../models/files.mjs'
@@ -115,6 +117,25 @@ function syncLoginItem() {
   }
 }
 
+// 主进程卡顿观察：事件循环卡住超过 150ms 记一行到 data\perf.log。
+// 每 5 秒看一次最大值，超过就记，然后 reset。开销很小，一直开着。
+function startStallWatch() {
+  const hist = monitorEventLoopDelay({ resolution: 20 })
+  hist.enable()
+  const timer = setInterval(() => {
+    const maxMs = hist.max / 1e6
+    const p99Ms = hist.percentile(99) / 1e6
+    hist.reset()
+    if (maxMs < 150) return
+    ensureDataDir()
+    try {
+      appendFileSync(dataPaths().perfLog, `${JSON.stringify({ t: Date.now(), event: 'main-stall', maxMs: Math.round(maxMs), p99Ms: Math.round(p99Ms) })}\n`)
+    } catch { /* 日志写不进去也不能耽误事 */ }
+  }, 5000)
+  timer.unref?.()
+  app.on('before-quit', () => { clearInterval(timer); hist.disable() })
+}
+
 // 新闻后台的日志：一条一行流水，坏了不能误事。
 function makeNewsLog(file) {
   return (event, data = {}) => {
@@ -159,6 +180,8 @@ function startNews() {
     },
     // 对话记录跟任务窗记在同一个地方（各在任务/新闻自己的文件夹里），「全部对话」里能一起看到
     history: createHistory({ tasksDir: paths.tasks, newsDir: paths.news }),
+    // 跑完了记下出了几条（跟排期的上次跑的时间在同一个文件）：设置页状态行写「· N 条」
+    runsFile: () => dataPaths().newsRun,
     log,
     // 跑完了：记一条日志；成功了小岛那边亮红点（生成那边给的对话编号也记下，点开不用再找）
     onDone: (result) => {
@@ -196,6 +219,25 @@ function startNews() {
   powerMonitor.on('resume', tick)
   app.on('before-quit', () => clearInterval(timer))
   return runner
+}
+
+// 给一个新闻主题起名字：问模型（news.askName），回来时那句话还是问的那句才换上，换上了设置页重画。
+// 同一个主题正在问就不再问第二次；问完发现那句话又变了，再按新那句问一次
+const naming = new Set()
+async function nameNewsTopic(id) {
+  if (!news || !id || naming.has(id)) return
+  const file = newsFile(appRoot())
+  const topic = loadTopics(file).find((one) => one.id === id)
+  if (!topic || !needsName(topic)) return
+  naming.add(id)
+  try {
+    const name = await news.askName(topic.want)
+    if (name && renameTopic(file, id, name, topic.want).ok) newsNotify({})
+  } catch { /* 起不了名字就留着本地规则那个 */ } finally {
+    naming.delete(id)
+  }
+  const after = loadTopics(file).find((one) => one.id === id)
+  if (after && needsName(after) && after.want !== topic.want) void nameNewsTopic(id)
 }
 
 // 新闻的对话记录：跟任务窗同一套（扫任务文件夹和新闻的每一期），按内部日期目录找那一条
@@ -287,6 +329,8 @@ else {
     focusRunning()
   })
   app.whenReady().then(() => {
+    // 事件循环卡顿观察：一直开着
+    startStallWatch()
     // dsh 每轮干完留下的临时目录：起来时收拾一次。
     // 收拾完再起常驻的 dsh 进程（一个进程跑所有任务和新闻）。
     // 全局配置（模型路线、联网、技能开关）先写好：dsh 起来时照这份配置起。
@@ -368,6 +412,16 @@ else {
     news = startNews()
     // 设置页「现在生成」走这个口子：后台起来了，把生成的办法交给桥
     setGenerator((id) => news.generate(id, { reason: 'now' }))
+    // 设置页「看看」：跟右键菜单点开某一天走同一条路
+    setOpener((id, date) => openNewsIssue(newsEntry?.issueOf(id, date)))
+    // 起名字：那句话变了（或者老数据的名字不是照那句话起的），后台问模型要一个，回来存盘、设置页重画
+    setNamer((id) => nameNewsTopic(id))
+    // 点了「立即生成」的那一份在跑：小岛做出干活的样子；跑完了回去（定时生成安安静静跑）
+    onNewsStatus(({ running }) => pet?.newsWorking?.(running && running.reason === 'now' ? running.name : ''))
+    // 起来一会儿以后，把名字不是照那句话起的那几项补起名字（0.4 测试版升上来的旧名字就在这里换掉）
+    setTimeout(() => {
+      for (const topic of loadTopics(newsFile(appRoot()))) if (needsName(topic)) nameNewsTopic(topic.id)
+    }, 30_000).unref?.()
     // 之前生成好还没看的：开机红点也亮着，再眨两下让人看见
     syncNewsAlert()
     if (process.env.SIDEMATE_OPEN === 'settings') openSettings()

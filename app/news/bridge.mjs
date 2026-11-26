@@ -25,6 +25,32 @@ function failed(topicId, message) {
   }
 }
 
+// 另外两个口子，也是后台起来时交进来：
+// - namer(id)：给这个主题后台起个名字（问模型，回来自己存盘）
+// - opener(id, date)：打开这个主题那一天的新闻（跟右键菜单点开走同一条路）
+let namer = null
+let opener = null
+
+export function setNamer(fn) {
+  namer = typeof fn === 'function' ? fn : null
+}
+
+export function setOpener(fn) {
+  opener = typeof fn === 'function' ? fn : null
+}
+
+// 给这个主题起名字：后台没起来就算了（名字先用本地规则那个）
+export function nameTopic(topicId) {
+  if (!namer) return
+  try { namer(String(topicId ?? '').trim()) } catch { /* 起不了名字不打扰用户 */ }
+}
+
+// 打开那一天的新闻：后台没起来就什么都不做
+export function openIssue(topicId, date) {
+  if (!opener) return
+  try { opener(String(topicId ?? '').trim(), String(date ?? '')) } catch { /* 开不了就算了 */ }
+}
+
 // 生成一份：后台还没起来就立刻回一句没起来
 export async function generate(topicId) {
   const id = String(topicId ?? '').trim()

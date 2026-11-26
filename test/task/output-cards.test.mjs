@@ -1,5 +1,5 @@
 // 产出卡：模型交稿（present）的那几份写「文件生成」，没交稿但任务文件夹里有文件动了写「文件变动」。
-// 卡上只有两个钮：另存为、打开文件夹。没有「桌伴输出」那一层了。
+// 产出卡上有「预览」「另存为」，右键菜单里有「在文件夹里显示」。没有「桌伴输出」那一层了。
 
 import assert from 'node:assert/strict'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -152,11 +152,12 @@ test('这一轮什么都没动：不出卡', async () => {
   assert.equal(h.runner.view().blocks.some((one) => one.kind === 'card'), false)
 })
 
-test('产出卡上只有「另存为」和「打开文件夹」', () => {
-  const view = { labels: { saveAs: t('output.saveAs'), reveal: t('output.reveal') } }
-  assert.equal(view.labels.saveAs, '另存为')
-  assert.equal(view.labels.reveal, t('top.openFolder'))
-  assert.equal('open' in view.labels, false)
+test('产出卡上有「预览」和「另存为」，右键菜单里有「在文件夹里显示」', () => {
+  assert.equal(t('output.saveAs'), '另存为')
+  assert.equal(t('output.preview'), '预览')
+  assert.equal(t('output.reveal'), '在文件夹里显示')
+  assert.equal(t('output.open'), '打开')
+  assert.equal(t('output.saveAsMenu'), '另存为…')
 })
 
 test('整个 app 里不再有「桌伴输出」这一层', async () => {

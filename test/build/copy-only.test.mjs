@@ -383,17 +383,16 @@ test('状态码 v5 里的 St 码一个不少', () => {
     // 状态码表里不许有 St202、St203
     ...['St201', 'St204', 'St205', 'St206', 'St207', 'St208', 'St209', 'St210', 'St211', 'St212'],
     'St301', 'St303', 'St304', 'St305', 'St306',
-    'St401', 'St402', 'St403', 'St407',
+    'St407',
     'St502', 'St601', 'St607',
     'St701', 'St702', 'St703', 'St704', 'St705', 'St706', 'St707', 'St708',
     'St802', 'St803',
   ]
   for (const code of want) assert.ok(BOOKS.status[code], `少了 ${code}`)
-  // 不许有 St404、St405、St604、St801
-  for (const code of ['St404', 'St405', 'St604', 'St801']) assert.equal(BOOKS.status[code], undefined, `${code} 删了，别写回来`)
+  // 不许有 St401、St402、St403、St404、St405、St604、St801
+  for (const code of ['St401', 'St402', 'St403', 'St404', 'St405', 'St604', 'St801']) assert.equal(BOOKS.status[code], undefined, `${code} 删了，别写回来`)
   // 几句照 v5 的原话
   assert.equal(t('St301', { after: t('St301.after', { left: 37 }), nth: 5, max: 10 }), '模型忙，37 秒后自动重试（第 5 次，最多 10 次）')
-  assert.equal(t('St402', { name: '本地测试MCP' }), '「本地测试MCP」调用失败')
   assert.equal(t('St701', { elapsed: '1 分 20 秒' }), '执行中 · 1 分 20 秒')
   assert.equal(t('St708', { count: 2 }), '执行中 · 2 个任务')
   // 小岛等重试那行：头一截跟任务窗一样按错的种类说，后面接 St702.after

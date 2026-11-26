@@ -43,20 +43,23 @@
     </div>
     <div id="page-news" class="page" hidden>
       <h1 data-t="nav.news"></h1>
-      <ul id="news-list" class="card"></ul>
-      <p id="news-message" class="fine"></p>
+      <p id="news-notice" class="fine"></p>
+      <!-- 每个主题一张白卡，由 news-view.js 画（名字、开关、删除、一句话、频率和时间、状态行） -->
+      <div id="news-cards"></div>
       <p class="add-row">
         <button id="news-add" class="btn" type="button" data-t="newsPage.add"></button>
       </p>
+      <p id="news-message" class="fine"></p>
       <hr class="news-line">
-      <div class="pref-row">
-        <label class="pref-label" for="news-catchup-input" data-t="newsPage.catchup"></label>
-        <span class="switch" id="news-catchup"><input type="checkbox" id="news-catchup-input"><span class="track"></span></span>
-      </div>
       <div class="pref-row">
         <label class="pref-label" for="news-notify-input" data-t="newsPage.notify"></label>
         <span class="switch" id="news-notify"><input type="checkbox" id="news-notify-input"><span class="track"></span></span>
       </div>
+      <div class="pref-row">
+        <label class="pref-label" for="news-perm-input" data-t="newsPage.permLabel"></label>
+        <span class="switch" id="news-perm"><input type="checkbox" id="news-perm-input"><span class="track"></span></span>
+      </div>
+      <p class="news-hint" data-t="newsPage.permNote"></p>
     </div>
     <div id="page-usage" class="page" hidden>
       <h1 data-t="nav.usage"></h1>

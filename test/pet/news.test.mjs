@@ -8,6 +8,8 @@ import { join } from 'node:path'
 import test from 'node:test'
 
 import { createNewsEntry, newsDotOf } from '../../app/pet/news.mjs'
+import { t } from '../../app/copy/copy.mjs'
+import { resetStatus, startRun } from '../../app/news/status.mjs'
 
 // 临时目录，用完删掉
 function tempRoot() {
@@ -23,7 +25,8 @@ function makeTopic(root, topicsFile, topic, dates, counts = {}) {
     mkdirSync(dir, { recursive: true })
     const count = counts[date] ?? 2
     const items = Array.from({ length: count }, (_, i) => `**第 ${i + 1} 条**\n\n来源：站 [题](https://e.example/${i})\n`)
-    writeFileSync(join(dir, '新闻.md'), `# ${topic.name} · ${date} 新闻\n\n## 今天\n\n${items.join('')}\n`, 'utf8')
+    // 第一行标题照 runner 写的样子拼（report.title 的模板），拆当时的名字靠它
+    writeFileSync(join(dir, '新闻.md'), `# ${t('report.title', { topic: topic.name, date })}\n\n## 今天\n\n${items.join('')}\n`, 'utf8')
   }
 }
 
@@ -69,6 +72,19 @@ test('菜单：日子、「● 新」都从内部目录里现算；只写日子�
   rmSync(root, { recursive: true, force: true })
 })
 
+test('菜单：订阅改过名，旧那几期的日子后面带当时的名字', () => {
+  const { root, topicsFile, news } = entry()
+  makeTopic(root, topicsFile, { id: 't-ai', name: 'AI 行业' }, ['2026-11-11', '2026-11-10'])
+  // 后来用户把这张卡改成新名字：还是同一个 id、同一个文件夹，但菜单里旧那几期得带当时的名字
+  const all = JSON.parse(readFileSync(topicsFile, 'utf8'))
+  all.topics[0].name = '网络安全的新产品'
+  writeFileSync(topicsFile, JSON.stringify(all, null, 2), 'utf8')
+  const days = news.menu({ today: '2026-11-11' })[0].submenu
+  assert.equal(days[0].label, '今天 11-11 · AI 行业')
+  assert.equal(days[1].label, '昨天 11-10 · AI 行业')
+  rmSync(root, { recursive: true, force: true })
+})
+
 test('生成时给的对话编号记下来：点开不用再翻对话记录', () => {
   const { root, topicsFile, news } = entry()
   makeTopic(root, topicsFile, { id: 't-ai', name: 'AI 行业' }, ['2026-11-11'])
@@ -94,10 +110,16 @@ test('要打开的那一天：给足主题名和日期', () => {
   rmSync(root, { recursive: true, force: true })
 })
 
-test('好几个主题都有没看的：最新那份排在最前', () => {
+test('好几个主题：各算各的未读；菜单里正在生成的那一项名字后面写「生成中」', () => {
+  resetStatus()
   const { root, topicsFile, news } = entry()
-  makeTopic(root, topicsFile, { id: 't-med', name: '中医药政策' }, ['2026-11-10'])
-  makeTopic(root, topicsFile, { id: 't-ai', name: 'AI 行业' }, ['2026-11-11'])
-  assert.deepEqual(news.unread().map((one) => one.topicId), ['t-ai', 't-med'])
+  makeTopic(root, topicsFile, { id: 't-med', name: '中医药政策', want: '中医药政策' }, ['2026-11-10'])
+  makeTopic(root, topicsFile, { id: 't-ai', name: 'AI 行业', want: 'AI 行业' }, ['2026-11-11'])
+  assert.deepEqual(news.unread().map((one) => one.topicId).sort(), ['t-ai', 't-med'])
+  startRun('t-ai', 'AI 行业', 'now')
+  const labels = news.menu({ today: '2026-11-12' }).map((one) => one.label)
+  assert.ok(labels.some((label) => label.startsWith('AI 行业 生成中')), labels.join(' / '))
+  assert.ok(labels.some((label) => label.startsWith('中医药政策') && !label.includes('生成中')))
+  resetStatus()
   rmSync(root, { recursive: true, force: true })
 })

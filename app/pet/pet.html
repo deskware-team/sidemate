@@ -12,7 +12,6 @@
     --curve-out: cubic-bezier(0.2, 0.8, 0.2, 1);
     --curve-in: cubic-bezier(0.4, 0, 0.2, 1);
     --curve-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
-    /* 下面这几个由 pet.js 按字号算出来：没有写死的 30 / 56 */
     --font-size: 13px;
     --font-stack: "Noto Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", sans-serif;
     --island-w: 112px;
@@ -29,17 +28,6 @@
     --eye-u: 1;        /* SVG 单位换成 px：这一档小岛的比例（1:1 是 1） */
     --expand-ms: 240ms;  /* 跟壳里张开窗口同一个时长（theme.expandMs） */
     --collapse-ms: 200ms; /* 跟壳里收起窗口同一个时长（theme.collapseMs） */
-    --lid-ms: 140ms;
-    --lid-curve: var(--curve-lid-open);
-    /* 眼珠一跳：快、带一点过冲（3 的位移冲过头约 0.3 再落定） */
-    --curve-saccade: cubic-bezier(0.3, 1.45, 0.45, 1);
-    /* 跟着鼠标：先快后慢，下一段接得上 */
-    --curve-follow: cubic-bezier(0.25, 0.6, 0.35, 1);
-    /* 回正：慢起慢停 */
-    --curve-settle: cubic-bezier(0.45, 0, 0.25, 1);
-    /* 眼皮：闭先慢后快，睁先快后慢 */
-    --curve-lid-close: cubic-bezier(0.55, 0, 1, 0.45);
-    --curve-lid-open: cubic-bezier(0, 0.55, 0.45, 1);
   }
   html, body { margin: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; user-select: none; }
   body {
@@ -54,6 +42,9 @@
     * { transition-duration: 0s !important; animation: none !important; }
   }
 
+  /* 整岛动（引擎写在这一层，别写在 #strip 上——会把 .press 盖掉）。
+     位移和缩放都乘这一档小岛的比例（--eye-u） */
+  #bob { position: absolute; left: 0; top: 0; right: 0; height: var(--island-h); transform-origin: center; will-change: transform; }
   /* 小条：底色只画主题那么高（1:1 是 30）。
      Windows 给透明无边框的窗垫了最小高（要 30 实得 36，100% 缩放时垫到 71），
      底色要是铺满整个窗，眼睛和字就都偏上：排版是按主题的 30 算的，落在更高的窗里。
@@ -68,87 +59,37 @@
   /* 被点那一下：缩到 0.96 再弹回（80ms 缩 + 120ms 回） */
   #strip.press { transform: scale(var(--press-scale, .96)); transition: transform 80ms var(--curve-out); }
   #strip.press-back { transform: scale(1); transition: transform 120ms var(--curve-out); }
-  /* 接文件·期待：整个岛弹一下（scale 1→1.06→1，弹一下曲线 250ms），都只放一次 */
-  #strip.bounce { animation: island-bounce 250ms var(--curve-bounce); }
-  @keyframes island-bounce { 0% { transform: scale(1); } 50% { transform: scale(1.06); } 100% { transform: scale(1); } }
-  /* 做完了：整个岛往上跳 2px 再落下（弹一下曲线 300ms），只跳一次；顶上被裁 2px 可以接受 */
-  #strip.hop { animation: island-hop 300ms var(--curve-bounce); }
-  @keyframes island-hop { 0% { transform: translateY(0); } 50% { transform: translateY(-2px); } 100% { transform: translateY(0); } }
-  /* 没干成：岛左右晃 2px 两次，共 240ms（0→−2→+2→−2→+2→0） */
-  #strip.shake { animation: island-shake 240ms linear; }
-  @keyframes island-shake {
-    0%, 100% { transform: translateX(0); }
-    20%, 60% { transform: translateX(-2px); }
-    40%, 80% { transform: translateX(2px); }
-  }
   /* 收成细线的时候：整条就是那根线。
      墨色只画那根线那么高，下面透明——不然窗被 Windows 垫高的那一截也是墨的，
      全屏放 PPT 时顶上就挂着一块黑。 */
   body[data-scene="line"] #strip { height: var(--line-h); border-radius: 2px; }
 
-  /* 眼睛：A 套。1:1 时两只眼睛中心在 x=46、x=66、y=15。
-     SVG 用 112×30 的用户坐标，缩放靠外层的宽高，字号变了眼睛跟着等比放大。 */
+  /* 眼睛：1:1 时两只眼睛中心在 x=46、x=66、y=15。
+     每只眼睛一个 <g>（pet.js 每帧写 translate + scale），里面一个椭圆（上下眼皮用 clip-path）
+     和一条笑眼细线；两只眼睛外面包一个 <g>，用 frame.eyesRot 绕岛中心 (56,15) 转。
+     大小随外层盒子缩放（viewBox 112×30），别的动法全在引擎里。 */
   #eyes {
     position: absolute; left: 0; top: 0;
     width: var(--island-w); height: var(--island-h);
     pointer-events: none;
   }
-  /* 每只眼睛一个 svg（整块 112×30 的坐标，形状坐标不变）：
-     缩放 / 平移加在 svg 这个 HTML 盒子上，只动合成器，不用每帧重画。
-     一层管一件事：#eye-shift 张开收起、#eye-swap 换形状时的那一滑、#eye-move 往哪儿看 */
-  #eye-shift, #eye-swap, #eye-move, #eyes .eye { position: absolute; inset: 0; will-change: transform; }
-  #eyes .eye { display: block; overflow: visible; will-change: transform; transition: transform 160ms var(--curve-out); }
-  /* 每只眼睛绕自己的中心缩放（1:1 时左 (46,15)、右 (66,15)） */
-  #eyes .eye-l { transform-origin: calc(var(--island-w) * 46 / 112) calc(var(--island-h) * 15 / 30); }
-  #eyes .eye-r { transform-origin: calc(var(--island-w) * 66 / 112) calc(var(--island-h) * 15 / 30); }
+  #eye-shift { position: absolute; inset: 0; will-change: transform; }
+  #eye-shift > svg { display: block; width: 100%; height: 100%; overflow: visible; }
+  /* 椭圆：填色；眼皮是 clip-path（闭多少由 pet.js 每帧给） */
+  .pupil { fill: var(--eye); }
+  /* 笑眼细线：不填色、描边 1.4、圆头（smile ≥ 0.42 时只显示它） */
+  .lid { fill: none; stroke: var(--eye); stroke-width: 1.4; stroke-linecap: round; }
+  /* 拖着走的 > < 是折线：2.2 宽、圆头圆角、不填充（frame.shape 为 'drag' 时只显示它们） */
+  .sh-drag { fill: none; stroke: var(--eye); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
   /* 展开时眼睛从整条正中滑到左边表情区的正中，跟壳里改窗口大小同一个时长、同一条曲线：
      张开 240ms 出来曲线，收起 200ms 收回曲线 */
   #eye-shift { transition: transform var(--collapse-ms) var(--curve-in); }
   body[data-scene="expanded"] #eye-shift,
   body[data-scene="tray"] #eye-shift { transform: translateX(calc(var(--eye-shift) * -1px)); transition: transform var(--expand-ms) var(--curve-out); }
-  /* 形状都绕自己的中心压扁（眨眼、换形状）：闭和睁用同一个中心，不会从顶上掉下来。
-     不透明度不过渡：换形状是闭着眼的时候一下换掉，不两个形状叠着淡入淡出 */
-  .sh {
-    opacity: 0; fill: var(--eye);
-    transform-box: fill-box; transform-origin: center;
-    transition: transform var(--lid-ms) var(--lid-curve);
-  }
-  /* 笑眼和平线是线：2.3 宽、圆头、不填充 */
-  .sh-arc, .sh-line { fill: none; stroke: var(--eye); stroke-width: 2.3; stroke-linecap: round; }
-  /* 拖着走的 > < 是折线：2.2 宽、圆头圆角、不填充 */
-  .sh-drag { fill: none; stroke: var(--eye); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-  /* 换形状：新形状先摆在旧形状的位置（--swap-dx / --swap-dy，不过渡），睁眼的同时滑回自己的位置 */
-  #eye-swap {
-    transform: translate(calc(var(--swap-dx, 0) * var(--eye-u) * 1px), calc(var(--swap-dy, 0) * var(--eye-u) * 1px));
-    transition: transform var(--lid-ms) var(--curve-lid-open);
-  }
-  #eyes.swap-jump #eye-swap { transition: none; }
-  /* 往哪儿看（东张西望 / 看你 / 读稿共用）：两只眼睛一起平移，单位是 SVG 单位（乘 --eye-u 换成 px）。
-     顺滑过渡，时长和曲线每回由 pet.js 给（一跳带过冲、跟鼠标先快后慢、回正慢起慢停） */
-  #eye-move {
-    transform: translate(calc(var(--eye-dx, 0) * var(--eye-u) * 1px), calc(var(--eye-dy, 0) * var(--eye-u) * 1px));
-    transition: transform var(--move-ms, 200ms) var(--move-curve, var(--curve-settle));
-  }
-  #eyes.mode-open .sh-round,
-  #eyes.mode-wide .sh-wide,
-  #eyes.mode-down .sh-down,
-  #eyes.mode-smile .sh-arc,
-  #eyes.mode-flat .sh-line,
-  #eyes.mode-think .sh-think,
-  #eyes.mode-drag .sh-drag { opacity: 1; }
-  /* 往上：圆眼抬 2（出场滑下来那一下），落定 160ms 落回去 */
-  #eyes.mode-up .sh-round { opacity: 1; }
-  #eyes.mode-up .eye { transform: translateY(-2px); }
-  /* 接文件·期待：眼睛放大到 1.2（expect-1-1.svg r=6.6 那一档）；长开等着接文件的时候一直睁大 */
-  #eyes.expect .eye,
-  body[data-scene="tray"] #eyes .eye { transform: scale(1.2); transition: transform 120ms var(--curve-out); }
-  /* 犯困：10 分钟没动静，眼睛 1.2 秒慢慢半闭成下半圆；一碰就睁开（250ms） */
-  #eyes.sleepy .sh-round { opacity: 0; transition: opacity 1200ms linear; }
-  #eyes.sleepy .sh-sleepy { opacity: 1; transition: opacity 1200ms linear; }
-  #eyes.waking .sh-round { opacity: 1; transition: opacity 250ms var(--curve-out); }
-  #eyes.waking .sh-sleepy { opacity: 0; transition: opacity 250ms var(--curve-out); }
-  /* 眨眼（换形状也借这一下）：所有形状一起压到 1/10，80ms 闭 + 140ms 睁 */
-  #eyes.blink .sh { transform: scaleY(0.1); }
+  /* 睡着的呼吸不再用 CSS 动画：透明、置顶的小窗上一直不停的动画让 GPU 进程每帧都在合成，
+     睡着要烧一个核的 16–21%（docs/0.4/小岛-CPU-实测.md）。
+     pet.js 的 breath.mjs 低频（一秒 4 次）写 #eyes 的 transform，起伏 0.22 × var(--eye-u)；
+     data-breathing 还挂在 body 上，留给调试和测试用。 */
   body[data-scene="line"] #eyes { display: none; }
 
   /* 冒的那一行：左边是表情区，右边是文字区，宽度跟着字走 */
@@ -211,40 +152,32 @@
   body[data-scene="tray"] #bubble { opacity: 0; }
   body[data-scene="tray"] #strip.hot { box-shadow: inset 0 0 0 1.5px var(--eye); }
 </style>
+<div id="bob">
 <div id="strip">
   <div id="eyes" aria-hidden="true">
-    <svg viewBox="0 0 112 30" width="112" height="30">
-      <div id="eye-shift">
-        <div id="eye-swap">
-          <div id="eye-move">
-          <svg class="eye eye-l" viewBox="0 0 112 30">
-            <circle class="sh sh-round" cx="46" cy="15" r="5.3"></circle>
-            <circle class="sh sh-wide" cx="46" cy="15" r="7"></circle>
-            <rect class="sh sh-down" x="41" y="16" width="10" height="6" rx="3"></rect>
-            <circle class="sh sh-think" cx="49.05" cy="12" r="4.6"></circle>
-            <path class="sh sh-arc" d="M 41.3 17 Q 46 10.3 50.7 17"></path>
-            <path class="sh sh-line" d="M 41.3 15 L 50.7 15"></path>
-            <path class="sh sh-drag" d="M42.5 11 L49.5 15 L42.5 19"></path>
-            <path class="sh sh-sleepy" d="M40.7 15.5C40.7 16.9189 41.2636 18.2797 42.2669 19.283C43.2702 20.2863 44.631 20.85 46.0499 20.85C47.4689 20.85 48.8297 20.2863 49.833 19.283C50.8363 18.2797 51.4 16.9189 51.4 15.5H40.7Z"></path>
-          </svg>
-          <svg class="eye eye-r" viewBox="0 0 112 30">
-            <circle class="sh sh-round" cx="66" cy="15" r="5.3"></circle>
-            <circle class="sh sh-wide" cx="66" cy="15" r="7"></circle>
-            <rect class="sh sh-down" x="61" y="16" width="10" height="6" rx="3"></rect>
-            <circle class="sh sh-think" cx="69.05" cy="12" r="4.6"></circle>
-            <path class="sh sh-arc" d="M 61.3 17 Q 66 10.3 70.7 17"></path>
-            <path class="sh sh-line" d="M 61.3 15 L 70.7 15"></path>
-            <path class="sh sh-drag" d="M69.5 11 L62.5 15 L69.5 19"></path>
-            <path class="sh sh-sleepy" d="M60.7 15.5C60.7 16.9189 61.2636 18.2797 62.2669 19.283C63.2702 20.2863 64.631 20.85 66.05 20.85C67.4689 20.85 68.8297 20.2863 69.833 19.283C70.8363 18.2797 71.4 16.9189 71.4 15.5H60.7Z"></path>
-          </svg>
-          </div>
-        </div>
-      </div>
-    </svg>
+    <div id="eye-shift">
+      <svg viewBox="0 0 112 30" width="100%" height="100%">
+        <!-- 眼睛那一对绕岛中心 (56,15) 转（frame.eyesRot）；每只眼睛一个 g：translate(cx cy) scale(sx sy) -->
+        <g id="eye-spin">
+          <g id="eye-l" transform="translate(46 15)">
+            <ellipse class="pupil" cx="0" cy="0" rx="5.3" ry="5.3"></ellipse>
+            <path class="lid" opacity="0" d="M-5.1 1.05 Q 0 -1.75 5.1 1.05"></path>
+          </g>
+          <g id="eye-r" transform="translate(66 15)">
+            <ellipse class="pupil" cx="0" cy="0" rx="5.3" ry="5.3"></ellipse>
+            <path class="lid" opacity="0" d="M-5.1 1.05 Q 0 -1.75 5.1 1.05"></path>
+          </g>
+          <!-- 拖着走的 > <：两条折线，frame.shape 为 'drag' 时只显示它们 -->
+          <path class="sh-drag" style="display:none" d="M42.5 11 L49.5 15 L42.5 19"></path>
+          <path class="sh-drag" style="display:none" d="M69.5 11 L62.5 15 L69.5 19"></path>
+        </g>
+      </svg>
+    </div>
   </div>
   <div id="bubble"><span id="bubble-inner"><span id="bubble-text"></span><span id="bubble-actions"></span></span></div>
   <div id="droptext" data-t="desk.dropHere"></div>
   <div id="dot"></div>
+</div>
 </div>
 <span id="measure"></span>
 <script type="module" src="pet.js"></script>

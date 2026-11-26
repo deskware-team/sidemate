@@ -6,7 +6,6 @@ import { listSkills, skillsPatchYaml } from './skills.mjs'
 import { loadMcp, mcpToolsFor } from './mcp.mjs'
 import { localNetPatchYaml } from '../dsh/local-net.mjs'
 import { appPaths } from '../paths.mjs'
-import { t } from '../copy/copy.mjs'
 
 // 能力要用的目录和文件：repo 由调用方给；deskRoot 是程序数据根（%LOCALAPPDATA%\sidemate），
 // 技能目录、ability.json、mcp.json 都从 app/paths.mjs 拿，只在这里定一次。
@@ -102,32 +101,6 @@ export function abilitiesForTask({ files, keyring, log } = {}) {
     say(`abilities web skipped: ${String(error?.message || error)}`)
   }
   return { patchTexts, env: {}, mcpServers, mcpSecrets }
-}
-
-// 工具调用失败的提示：技能没找到 St403、MCP 的工具 St402、别的工具 St401。
-// MCP 的工具名是 mcp__<服务>__<工具>，把服务名换成界面上那个名字，用户才看得懂是谁没调通。
-export function toolFailNote(name, files, input) {
-  const raw = String(name ?? '').trim()
-  // 技能工具：说的是哪个技能没找到；模型没说是哪个就照工具名说
-  if (raw === 'skill') {
-    const wanted = input && typeof input === 'object' ? String(input.name ?? input.skill ?? '').trim() : ''
-    return t('St403', { name: wanted || raw })
-  }
-  const matched = /^mcp__([a-z0-9-]+)__(.+)$/.exec(raw)
-  if (!matched) return t('St401', { name: raw })
-  let label = matched[1]
-  try {
-    const entry = loadMcp(files?.mcpFile).find((one) => {
-      if (!one || typeof one.id !== 'string') return false
-      const id = one.id
-      const server = id.startsWith('mcp-') && id.length > 4 ? id.slice(4) : id
-      return server === matched[1]
-    })
-    if (entry && typeof entry.name === 'string' && entry.name.trim() !== '') label = entry.name.trim()
-  } catch {
-    // 读不出来就用服务名
-  }
-  return t('St402', { name: label })
 }
 
 // 把能力并进算好的模型选项：能力的补丁排在模型补丁后面（后面的盖前面的），

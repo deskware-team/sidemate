@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import test, { after } from 'node:test'
-import { abilityFiles, abilitiesForTask, readTools, toolFailNote, webPatchYaml, withAbilities } from '../../app/abilities/launch.mjs'
+import { abilityFiles, abilitiesForTask, readTools, webPatchYaml, withAbilities } from '../../app/abilities/launch.mjs'
 import { saveMcp } from '../../app/abilities/mcp.mjs'
 import { importSkill, listSkills, setEnabled } from '../../app/abilities/skills.mjs'
 
@@ -303,20 +303,4 @@ test('技能名字不合规：导入那一刻就改好，开工时不再每轮�
   const before = readFileSync(join(raw, 'SKILL.md'), 'utf8')
   abilitiesForTask({ files, keyring: fakeKeyring() })
   assert.equal(readFileSync(join(raw, 'SKILL.md'), 'utf8'), before)
-})
-
-test('工具没调通：MCP 的工具名换成界面上那个名字', () => {
-  const { files } = makeDesk()
-  writeMcpFile(files, [
-    { id: 'mcp-stock', name: '库存服务', url: 'http://127.0.0.1:9369/mcp', auth: { kind: 'none', name: '' }, enabled: true },
-  ])
-  // 状态码 St402：MCP 用界面上那个名字
-  const text = toolFailNote('mcp__stock__check_stock', files)
-  assert.equal(text, '「库存服务」调用失败')
-  // St401：别的工具照工具名说
-  const other = toolFailNote('bash', files)
-  assert.equal(other, '「bash」调用失败')
-  // St403：技能说技能名
-  const skill = toolFailNote('skill', files, { name: '数字统计' })
-  assert.equal(skill, '「数字统计」调用失败')
 })

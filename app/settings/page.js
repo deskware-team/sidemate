@@ -1,7 +1,7 @@
 import { openCustomDialog } from './custom-view.js'
 import { openAskDialog, withAsk } from './ask-view.js'
 import { openMcpDialog, renderAbilities, renderImportProblems } from './abilities-view.js'
-import { openNewsDialog, renderNews, renderNewsPrefs } from './news-view.js'
+import { initNews, refreshNews } from './news-page.js'
 import { renderLoginItem } from './about-view.js'
 import { renderDoc } from './doc-view.js'
 import { renderDisplay } from './display-view.js'
@@ -197,11 +197,13 @@ function rowButton(row, one, keyform) {
   } else if (one.id === 'remove') {
     button.addEventListener('click', async () => {
       if (row.kind === 'kilo') {
-        if (!window.confirm(t('modelPage.removeKiloConfirm'))) return
+        const yes = await openAskDialog({ text: t('modelPage.removeKiloConfirm'), ok: t('common.delete'), cancel: t('common.cancel'), danger: true })
+        if (!yes) return
         renderModels(await withAsk(await window.settings.removeKilo(), (confirmed) => window.settings.removeKilo({ confirmed })))
         return
       }
-      if (!window.confirm(t('modelPage.removeConfirm', { name: row.name }))) return
+      const yes = await openAskDialog({ text: t('modelPage.removeConfirm', { name: row.name }), ok: t('common.delete'), cancel: t('common.cancel'), danger: true })
+      if (!yes) return
       renderModels(await withAsk(await window.settings.removeCustom(row.id), (confirmed) => window.settings.removeCustom(row.id, { confirmed })))
     })
   }
@@ -381,102 +383,6 @@ async function initModels() {
   })
 }
 
-// 新闻页：主题列表一行一个主题；加、删、改和开关都走主进程，回来重画这一页
-let newsData = { rows: [], hasKey: false, ready: false, busy: '', prefs: { catchUp: true, notify: true } }
-
-function newsMessage(text) {
-  const box = document.querySelector('#news-message')
-  if (box) box.textContent = text || ''
-}
-
-function drawNews() {
-  renderNews(newsData, newsHandlers)
-  renderNewsPrefs(newsData.prefs, newsPrefsHandlers)
-}
-
-function afterNewsSave(back, options = {}) {
-  newsData = back && back.rows ? back : newsData
-  drawNews()
-  newsMessage('')
-  // 「保存并生成一份」：存好了，接着走这一行的「现在生成」
-  if (options.generate === true) {
-    const id = String(back?.topic?.id || options.topicId || '')
-    if (id) generateNow({ id })
-  }
-}
-
-// 「现在生成」：点一下这一行就变「生成中…」，跑完了恢复；跑不出来第二行末尾写红字
-async function generateNow(row) {
-  const id = String(row?.id || '')
-  if (!id || newsData.busy) return
-  newsData = { ...newsData, busy: id }
-  drawNews()
-  try {
-    const back = await window.settings.newsGenerate(id)
-    const view = back && back.rows ? back : newsData
-    newsData = { ...view, busy: '' }
-    // 失败那句主进程已经写在那一行末尾了（带回了列表）：列表下面不重复一遍
-    const inRow = Boolean(back && back.rows)
-    newsMessage(back?.ok === true || inRow ? '' : (back?.message || t('newsPage.failed')))
-  } catch {
-    newsData = { ...newsData, busy: '' }
-    newsMessage(t('stops.newsError'))
-  }
-  drawNews()
-}
-
-async function refreshNews() {
-  const view = await window.settings.newsList()
-  // 正在生成的那一行别忘了：刷新完了它还是「生成中…」
-  newsData = { ...view, busy: newsData.busy }
-  drawNews()
-}
-
-// 删一个主题：弹窗里那个「删掉这个主题」走这里
-function removeNewsTopic(row, close) {
-  if (!window.confirm(t('newsPage.removeConfirm', { name: row.name }))) return
-  window.settings.newsRemove(row.id).then((back) => {
-    if (typeof close === 'function') close()
-    newsData = back && back.rows ? back : newsData
-    drawNews()
-  })
-}
-
-const newsHandlers = {
-  onEdit(row) {
-    openNewsDialog(
-      { form: row.form },
-      { onSaved: afterNewsSave, onRemove: removeNewsTopic },
-    )
-  },
-  onToggle(row, on) {
-    window.settings.newsToggle(row.id, on === true).then(refreshNews)
-  },
-  onGenerate(row) {
-    generateNow(row)
-  },
-}
-
-// 整页的那两项设置：错过补不补、好了说不说
-const newsPrefsHandlers = {
-  onToggle(key, on) {
-    const prefs = { ...(newsData.prefs || {}), [key]: on === true }
-    window.settings.newsSavePrefs(prefs).then((back) => {
-      newsData = { ...newsData, prefs: (back && back.prefs) || prefs }
-      renderNewsPrefs(newsData.prefs, newsPrefsHandlers)
-    })
-  },
-}
-
-async function initNews() {
-  document.querySelector('#news-add').addEventListener('click', () => {
-    // 模型不能联网搜时这个按钮是灰的，这里再挡一道
-    if (newsData.ready !== true) return
-    openNewsDialog({ form: null }, { onSaved: afterNewsSave })
-  })
-  await refreshNews()
-}
-
 // 能力页：技能、联网搜索、MCP 三张卡，加、删、改和开关都走主进程，回来重画这一页
 async function refreshAbilities() {
   const view = await window.settings.abilitiesList()
@@ -499,9 +405,10 @@ async function openMcpDialogFor(id) {
 }
 
 const abHandlers = {
-  onSkillButton(id, row) {
+  async onSkillButton(id, row) {
     if (id !== 'remove') return
-    if (!window.confirm(t('abilities.removeConfirm', { name: row.name }))) return
+    const yes = await openAskDialog({ text: t('abilities.removeConfirm', { name: row.name }), ok: t('common.delete'), cancel: t('common.cancel'), danger: true })
+    if (!yes) return
     window.settings.abilitiesSkillRemove(row.id).then(() => refreshAbilities())
   },
   // 第二行里的仓库地址：用系统浏览器打开（主进程那边只放行 GitHub 仓库地址）

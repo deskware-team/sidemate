@@ -1,13 +1,17 @@
 // 任务窗的 Electron 这头：无边框的透明窗，挂在小岛正下方（缝 0，贴着小条底边垂下来），点外面就收回；
 // 几个通道：ready / view / act / drop / height / link / models / consent / history-list / history-open；选文件对话框、打开产出、前台判断、
 // 最近的文件夹（recent.json）、task.log、换模型的数据、对话记录。对话表在 ./run.mjs，一条对话的状态和流水线在 ./session.mjs，这里只做桥。
+// 对话里的图另有两个：image 核路径给页面一个能用的地址，image-menu 弹图上的右键菜单。
 
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, screen, shell, systemPreferences } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, screen, shell, systemPreferences } from 'electron'
 import { appendFileSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { abilitiesForTask, abilityFiles, toolFailNote, withAbilities } from '../abilities/launch.mjs'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { abilitiesForTask, abilityFiles, withAbilities } from '../abilities/launch.mjs'
 import { openSettings } from '../settings/shell.mjs'
+import { openPreview as openPreviewWindow, openPreviewFolder as openPreviewFolderWindow } from '../preview/shell.mjs'
+import { listFolder } from '../preview/list.mjs'
+import { hasFiles } from '../preview/model.mjs'
 import { runTask } from '../dsh/index.mjs'
 import { loadCatalog, usable } from '../models/catalog.mjs'
 import { createConsent } from '../models/consent.mjs'
@@ -19,10 +23,14 @@ import { iconPath } from '../assets/icon.mjs'
 import { MATERIAL_EXTENSIONS, clearWorkspace, copyMaterials, prepareTask } from '../workspace/index.mjs'
 import { appPaths, appRoot, dataPaths, ensureDataDir } from '../paths.mjs'
 import { createRunner } from './run.mjs'
+import { cardMenuTemplate } from './card-menu.mjs'
+import { chartFileName, chartMenuTemplate } from './chart-menu.mjs'
 import { keyQueue } from './queue.mjs'
 import { createHistory } from './history.mjs'
 import { groupByDay } from './history-view.mjs'
 import { openablePath } from './chips.mjs'
+import { imagePath, imageTarget } from './image-path.mjs'
+import { imageAction } from './image-menu.mjs'
 import { createDragIcons } from './drag-icon.mjs'
 import { menuOpen } from '../main/menu-state.mjs'
 import { chipOf, keyringHas, menuList } from './models-menu.mjs'
@@ -32,7 +40,7 @@ import { createReloadGuard } from './reload-guard.mjs'
 import { createCloseCycle } from './close.mjs'
 import { createPicker } from './pick.mjs'
 import { createToggler } from './toggle.mjs'
-import { httpUrl } from './markdown.mjs'
+import { httpUrl, imageKind } from './markdown.mjs'
 import { t } from '../copy/copy.mjs'
 import { placeTaskWindow, taskMetrics, taskWindowOptions, winHeight } from './window.mjs'
 import { ROLL_MS } from './motion.mjs'
@@ -71,6 +79,9 @@ let raiseTimer = null
 let raiseTop = false
 let anchorOf = null
 let pendingAnim = ''
+// 用户右键的是哪张图：统计图（chart）还是流程图（flow），图的标题拿来当默认文件名
+let chartKind = 'chart'
+let chartTitle = ''
 // 任务窗收起来了：小岛该再说一遍层级
 let onHidden = () => {}
 const guard = createReloadGuard()
@@ -238,8 +249,10 @@ function createWindow() {
   applyZoomFactor(win.webContents, fontScale)
   win.webContents.on('before-input-event', onTaskKey)
   win.once('ready-to-show', () => { if (pendingAnim) sendAnim(pendingAnim) })
-  // 别的置顶窗一被激活就会抢走层级：窗口自己动的时候再说一遍
+  // 别的置顶窗一被激活就会抢走层级：窗口自己动的时候再说一遍。
+  // 定期抢（keepAbove）：有焦点的时候放慢（多半已经在最前面，白抢白搭合成），失焦了再抢快些
   win.on('focus', () => { applyOnTop(win, raiseTop || onTop); raiseAbove(); startKeepAbove() })
+  win.on('blur', () => startKeepAbove())
   win.on('show', () => { applyOnTop(win, raiseTop || onTop); raiseAbove(); startKeepAbove() })
   win.on('hide', () => stopKeepAbove())
   win.on('closed', () => stopKeepAbove())
@@ -282,6 +295,11 @@ function raiseAbove() {
 // 小岛抢了层级以后，任务窗要抢回来：任务窗顶上那截跟小岛垫出来的那截叠着，
 // 小岛在前的话，点任务窗顶边会打到小岛、把任务窗收了。
 // 只在任务窗看着的时候定期抢（用户一点外面任务窗就收，收之前那一小会儿抢一下无害）。
+// 任务窗自己有焦点的时候它多半已经在最前面（小岛抢层级时 openTask 那头会 raiseAbove，
+// 托盘叫回小岛也会把任务窗带到前面），这时候抢多半是白抢 —— 白搭一次合成（GPU 白涨），
+// 所以有焦点时放慢，当保险用；失焦了（用户去别的程序了）照旧 500ms 一次。
+const KEEP_ABOVE_MS = 500
+const KEEP_ABOVE_FOCUS_MS = 2000
 let keepAboveTimer = null
 function keepAbove() {
   if (!win || win.isDestroyed() || !win.isVisible()) return
@@ -293,9 +311,17 @@ function keepAbove() {
     /* 提不上就下回再说 */
   }
 }
+// 抢多快：任务窗有焦点的时候它多半已经在最前面，抢慢些当保险用；失焦了抢快些
+function keepAboveMs() {
+  try {
+    return win && !win.isDestroyed() && win.isFocused() ? KEEP_ABOVE_FOCUS_MS : KEEP_ABOVE_MS
+  } catch {
+    return KEEP_ABOVE_MS
+  }
+}
 function startKeepAbove() {
-  if (keepAboveTimer) return
-  keepAboveTimer = setInterval(keepAbove, 500)
+  stopKeepAbove()
+  keepAboveTimer = setInterval(keepAbove, keepAboveMs())
   keepAboveTimer.unref?.()
 }
 function stopKeepAbove() {
@@ -426,6 +452,82 @@ function bind() {
   ipcMain.on('task:drop', (event, payload) => { if (mine(event)) runner.drop(payload?.paths) })
   // 页面里按 Esc：弹层、下拉、菜单都没开的时候收任务窗（跟点小岛收起一样）
   ipcMain.on('task:hide', (event) => { if (mine(event)) hideWindow() })
+  // 成品卡上点右键：弹系统原生菜单（四项：预览 / 打开 / 在文件夹里显示 / 另存为）
+  ipcMain.on('task:card-menu', (event, payload) => {
+    if (!mine(event) || !win || win.isDestroyed()) return
+    const path = String(payload?.path ?? '')
+    if (!path) return
+    const labels = { preview: t('output.preview'), open: t('output.open'), reveal: t('output.reveal'), saveAs: t('output.saveAsMenu') }
+    const template = cardMenuTemplate(labels).map((one) => ({ label: one.label, click: () => runner.act({ type: one.type, path }) }))
+    Menu.buildFromTemplate(template).popup({ window: win })
+  })
+  // 图上点右键：弹系统原生菜单（另存为图片 / 复制图片）。图片是页面导好了给过来的
+  ipcMain.on('task:chart-menu', (event, payload) => {
+    if (!mine(event) || !win || win.isDestroyed()) return
+    chartKind = payload?.kind === 'flow' ? 'flow' : 'chart'
+    chartTitle = String(payload?.title ?? '')
+    const labels = { saveAs: t('chartMenu.saveAs'), copy: t('chartMenu.copy') }
+    const template = chartMenuTemplate(labels).map((one) => ({
+      label: one.label,
+      click: () => {
+        if (win && !win.isDestroyed()) win.webContents.send('task:chart-export', { action: one.type === 'copy' ? 'copy' : 'save' })
+      },
+    }))
+    Menu.buildFromTemplate(template).popup({ window: win })
+  })
+  // 页面把图导好了：另存为（系统另存为对话框）或复制（进剪贴板）。存好不弹提示
+  ipcMain.handle('task:chart-image', async (event, payload) => {
+    if (!mine(event)) return { ok: false }
+    const prefix = 'data:image/png;base64,'
+    const dataUrl = String(payload?.dataUrl ?? '')
+    if (!dataUrl.startsWith(prefix)) return { ok: false }
+    const action = payload?.action === 'copy' ? 'copy' : 'save'
+    if (action === 'copy') {
+      const image = nativeImage.createFromDataURL(dataUrl)
+      if (image.isEmpty()) return { ok: false }
+      clipboard.writeImage(image)
+      log('chart-copy', {})
+      return { ok: true }
+    }
+    const fallback = chartKind === 'flow' ? t('chartMenu.flowName') : t('chartMenu.chartName')
+    const name = chartFileName(chartTitle, fallback)
+    try {
+      const done = await dialog.showSaveDialog(win, { title: t('output.saveAs'), defaultPath: name })
+      if (done?.canceled || !done?.filePath) return { ok: false }
+      writeFileSync(done.filePath, Buffer.from(dataUrl.slice(prefix.length), 'base64'))
+      log('chart-save', { path: done.filePath })
+      return { ok: true, path: done.filePath }
+    } catch (error) {
+      log('chart-save-failed', { error: error?.message || '' })
+      return { ok: false }
+    }
+  })
+  // 对话里的图片：本地的核过工作区才给页面一个能用的地址（https 的直接显示）
+  ipcMain.handle('task:image', (event, payload) => {
+    if (!mine(event)) return { ok: false, reason: 'denied' }
+    const url = String(payload?.url ?? '')
+    const kind = imageKind(url)
+    if (kind === 'https') return { ok: true, src: url }
+    if (kind !== 'local') return { ok: false, reason: 'other' }
+    const hit = imagePath(runner?.workspace() || '', url)
+    if (!hit.ok) {
+      log('image-denied', { reason: hit.reason })
+      return hit
+    }
+    return { ok: true, src: pathToFileURL(hit.path).href, path: hit.path, name: hit.name }
+  })
+  // 图上点右键：弹系统原生菜单（另存为图片 / 复制图片）
+  ipcMain.on('task:image-menu', (event, payload) => {
+    if (!mine(event) || !win || win.isDestroyed()) return
+    const target = imageTarget(payload, runner?.workspace() || '')
+    if (!target) return
+    const labels = { saveAs: t('chartMenu.saveAs'), copy: t('chartMenu.copy') }
+    const template = chartMenuTemplate(labels).map((one) => ({
+      label: one.label,
+      click: () => { void imageAction(target, one.type === 'copy' ? 'copy' : 'save', win, log) },
+    }))
+    Menu.buildFromTemplate(template).popup({ window: win })
+  })
   // 贴进来的图片 / 长文字：主进程存成文件、加小签；取回文字也走主进程（只认贴出来的那几个文件）
   ipcMain.on('task:paste', (event, payload) => {
     if (!mine(event)) return
@@ -440,7 +542,7 @@ function bind() {
     if (!mine(event)) return ''
     return thumbOf(String(payload?.path ?? ''))
   })
-  // 点气泡里的小块：用系统默认程序打开这次任务工作区里的那份拷贝（不开原件）。
+  // 点气泡里的小块：在预览窗里看这次任务工作区里的那份拷贝（不开原件）。
   // 只放工作区里的文件：解析成绝对路径后必须在工作区内，符号链接按真身再核一遍。
   ipcMain.handle('task:open-chip', (event, payload) => {
     if (!mine(event)) return { ok: false, reason: 'denied' }
@@ -450,7 +552,7 @@ function bind() {
       log('chip-denied', { reason: hit.reason })
       return hit
     }
-    openPath(hit.path, false)
+    openPreview(hit.path)
     return { ok: true, path: hit.path }
   })
   // 从产出卡里把文件拖出去：系统拖拽（主进程起拖，页面只发路径）
@@ -501,7 +603,9 @@ function bind() {
   // 历史对话的列表：能搜、能筛，按天分好组交给页面
   ipcMain.handle('task:history-list', (event, payload) => {
     if (!mine(event)) return null
-    const items = history.list({ query: String(payload?.query ?? ''), kind: payload?.kind ?? null })
+    const listed = history.list({ query: String(payload?.query ?? ''), kind: payload?.kind ?? null })
+    // 每条带上状态：在跑的、跑完还没回来看的（行里画标记用）
+    const items = listed.map((one) => ({ ...one, status: runner?.statusOf?.(one?.id) || '' }))
     return { items, groups: groupByDay(items) }
   })
   // 打开一条历史对话：干活中也能开，正在跑的那条在后台接着跑
@@ -527,6 +631,24 @@ function openPath(path, reveal) {
     try { mkdirSync(path, { recursive: true }) } catch { /* 建不了就交给打开 */ }
   }
   void shell.openPath(path)
+}
+
+// 预览：在预览小窗里看这份文件（只读，见 app/preview/shell.mjs）
+function openPreview(path) {
+  openPreviewWindow(path)
+}
+
+// 按文件夹打开预览窗：这次对话有成品或材料才开得了（见 app/preview/shell.mjs）
+function openPreviewFolder(path) {
+  openPreviewFolderWindow(path)
+}
+
+// 这次对话有没有东西可看：成品或材料有一份就算（跟预览窗左栏同一套）
+function previewInfo(folder) {
+  const dir = typeof folder === 'string' ? folder : ''
+  if (dir === '') return { path: '', count: 0 }
+  const groups = listFolder(dir)
+  return { path: dir, count: hasFiles(groups) ? groups.done.length + groups.material.length : 0 }
 }
 
 // 另存为：系统另存为对话框，把这份文件拷一份到用户选的地方
@@ -599,8 +721,6 @@ export function startTask(options = {}) {
         hasSearchKey: typeof picked?.apiKey === 'string' && picked.apiKey !== '',
       }))
     },
-    // 工具没调通时的那句话
-    toolFailNote: (name, input) => toolFailNote(name, abilityFiles({ repo: resolve(dir, '..', '..'), deskRoot: appRoot() }), input),
     extensions: MATERIAL_EXTENSIONS,
     copyMaterials,
     visionOf,
@@ -621,6 +741,9 @@ export function startTask(options = {}) {
     openSettings,
     pickFiles,
     openPath,
+    openPreview,
+    openPreviewFolder,
+    previewInfo,
     saveAs,
     history,
     log,

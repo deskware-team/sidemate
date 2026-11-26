@@ -37,8 +37,6 @@ function harness(over = {}) {
       : (choice) => (over.noModel
         ? { ok: false, reason: 'key', code: 'Si101', stop: 'noKey', vars: { vendor: 'DeepSeek' }, message: '还没填 DeepSeek 的密钥' }
         : { ok: true, apiKey: 'test-key', env: { SIDEMATE_KEY_TEST: 'v' }, patchTexts: ['routes'], model: { value: 'deepseek/chat', effort: null }, vendor: '测试通道', free: false }),
-    // 工具没调通时的那句话
-    toolFailNote: over.toolFailNote,
     extensions: ['.docx', '.xlsx', '.pptx', '.pdf', '.csv', '.md', '.txt'],
     // 中途加材料（接着说时贴的）：跟开工那一遍一样拷进工作区（假的：同名拷到工作区根，但真拷文件）
     copyMaterials: over.copyMaterials
@@ -60,6 +58,10 @@ function harness(over = {}) {
     onView: (view) => seen.views.push(view),
     openSettings: () => { seen.settings = (seen.settings || 0) + 1 },
     openPath: (path, reveal) => { seen.open = { path, reveal } },
+    // 预览：主进程打开预览窗（还没做好，先退回成用系统程序打开）
+    openPreview: (path) => { seen.preview = path },
+    // 按文件夹打开预览窗（顶栏那个「预览」按钮）
+    openPreviewFolder: (path) => { seen.previewFolder = path },
     // 另存为：主进程弹系统另存为对话框，拷一份到用户选的地方
     saveAs: (path) => { seen.saved = path },
     history,
@@ -385,8 +387,8 @@ test('j 文件夹拖进来不记最近、在里面开干了才记；recent 只�
   assert.deepEqual(h.seen.recent[h.seen.recent.length - 1], [folder, 'C:/旧的'])
   h.runner.act({ type: 'recent', dir: 'C:/没在列表里' })
   assert.equal(h.runner.view().tags.length, 2)
-  h.runner.act({ type: 'open-folder', path: folder })
-  assert.deepEqual(h.seen.open, { path: folder, reveal: false })
+  h.runner.act({ type: 'preview-folder', path: folder })
+  assert.equal(h.seen.previewFolder, folder)
   h.seen.open = null
   h.runner.act({ type: 'open', path: 'C:/没出现过的.docx' })
   assert.equal(h.seen.open, null)
@@ -412,7 +414,10 @@ test('k2 模型算不通：照它给的码和停工那句说，不 prepare 不 r
   await settled(h.runner, 'error')
   const v = h.runner.view()
   assert.equal(v.flow[v.flow.length - 1].text, '必须阅读并同意使用须知')
-  assert.deepEqual(v.flow[v.flow.length - 1].buttons.map((b) => b.action), ['settings', 'retry'])
+  // 没同意使用须知：给「使用须知」那个钮（点了弹须知窗），不是「去设置」
+  assert.deepEqual(v.flow[v.flow.length - 1].buttons.map((b) => b.action), ['consent', 'retry'])
+  assert.equal(v.banner.buttons[0].action, 'consent')
+  assert.equal(v.banner.buttons[0].round, 1)
   assert.equal(h.seen.run.length, 0)
   assert.equal(h.seen.prepare.length, 0)
 })
@@ -604,7 +609,7 @@ test('m2 收尾顺序：产出 → 出错 → 结束', async () => {
   assert.equal(v.flow[v.flow.length - 1].text, copy('stops.broken'))
 })
 
-test('卡上的两个钮：另存为拷一份到用户选的地方，打开文件夹是在资源管理器里选中这份文件', async () => {
+test('卡上的动作：另存为拷一份到用户选的地方，预览走预览，在文件夹里显示是在资源管理器里选中这份文件', async () => {
   const h = harness({
     runTask: (options, seen, kit) => {
       writeOffice(join(h.ws, '周报.docx'), '.docx', '写好的周报')
@@ -622,10 +627,16 @@ test('卡上的两个钮：另存为拷一份到用户选的地方，打开文�
   // 打开文件夹：在资源管理器里选中这份文件
   h.runner.act({ type: 'reveal', path: card.path })
   assert.deepEqual(h.seen.open, { path: card.path, reveal: true })
+  // 预览：走预览那个动作（预览窗还没做好，主进程先退回成打开）
+  h.runner.act({ type: 'preview', path: card.path })
+  assert.equal(h.seen.preview, card.path)
   // 视图里没有的路径不认
   h.seen.saved = null
+  h.seen.preview = null
   h.runner.act({ type: 'save-as', path: join(h.ws, '没这张卡.docx') })
   assert.equal(h.seen.saved, null)
+  h.runner.act({ type: 'preview', path: join(h.ws, '没这张卡.docx') })
+  assert.equal(h.seen.preview, null)
 })
 
 test('s1 开新任务后不留「收好了」那一行，上一个任务的成品也不再能从窗上打开', async () => {
@@ -927,6 +938,43 @@ test('打开历史接着聊：下一句的 runTask 拿到的是记录里的 sess
   ])
 })
 
+// 一轮里每段话一个气泡：过程话也进对话历史，重开对话时一个一个还原；
+// 同一个气泡的逐字前缀只记最后的整段，不记成好几条
+test('一轮里三段话记三条：重开历史一个一个还原，前缀不重复记', async () => {
+  const h = harness({
+    runTask: (options, seen, kit) => {
+      options.onEvent({ type: 'progress', taskId: options.taskId, at: 1, text: 'read 甲.md' })
+      // 第一段：逐字前缀长长（同一个气泡），后面两段各自一个气泡
+      options.onEvent({ type: 'reply', taskId: options.taskId, at: 2, text: '先' })
+      options.onEvent({ type: 'reply', taskId: options.taskId, at: 2, text: '先把两份文件读了' })
+      options.onEvent({ type: 'reply', taskId: options.taskId, at: 3, text: '甲里没写截止日期' })
+      options.onEvent({ type: 'reply', taskId: options.taskId, at: 4, text: '写好了' })
+      return { sessionId: 's3', cancel() {}, done: Promise.resolve(kit.doneRun(options, 'done')) }
+    },
+  })
+  h.runner.act({ type: 'send', text: '对个日期' })
+  await settled(h.runner, 'done')
+
+  const id = h.history.list()[0].id
+  const record = h.history.get(id)
+  assert.deepEqual(record.messages.map((m) => [m.role, m.text]), [
+    ['me', '对个日期'],
+    ['it', '先把两份文件读了'],
+    ['it', '甲里没写截止日期'],
+    ['it', '写好了'],
+  ])
+
+  assert.deepEqual(h.runner.openHistory(id), { ok: true })
+  const v = h.runner.view()
+  assert.equal(v.phase, 'done')
+  assert.deepEqual(v.flow.map((item) => [item.kind, item.text]), [
+    ['user', '对个日期'],
+    ['reply', '先把两份文件读了'],
+    ['reply', '甲里没写截止日期'],
+    ['reply', '写好了'],
+  ])
+})
+
 // 干活中也能打开历史：正在跑的那条留在后台接着跑（详细的在 ./background.test.mjs）
 test('打开历史：干活中也能开，这一轮在后台照干、不被打断', async () => {
   const h = harness({
@@ -1151,26 +1199,26 @@ test('开工前不预检外部工具服务：话原样发，不多一行', async
   assert.equal(h.runner.view().flow.some((one) => one.kind === 'note'), false)
 })
 
-test('工具没调通：说一句，别让用户以为它拿到了结果', async () => {
+test('工具没调通：对话里不出那一行，日志里记着', async () => {
   const h = harness({
-    toolFailNote: (name) => `「${name}」这次没调通，没拿到结果`,
     runTask: (options, seen, kit) => {
       options.onEvent({ type: 'tool-call', taskId: options.taskId, at: 1, name: 'mcp__stock__check_stock' })
-      options.onEvent({ type: 'tool-failed', taskId: options.taskId, at: 2, name: 'mcp__stock__check_stock' })
+      options.onEvent({ type: 'tool-failed', taskId: options.taskId, at: 2, name: 'mcp__stock__check_stock', error: 'Error: 403' })
       return { sessionId: 's1', cancel() { this.cancelled = true }, done: Promise.resolve(kit.doneRun(options, 'done')) }
     },
   })
   h.runner.act({ type: 'send', text: '再帮我查一下铅笔的库存' })
   await settled(h.runner, 'done')
-  const v = h.runner.view()
-  const note = v.flow.find((one) => one.kind === 'note')
-  assert.ok(note, '工具没调通要说一句')
-  assert.ok(note.text.includes('mcp__stock__check_stock'), note.text)
+  const notes = h.runner.view().flow.filter((one) => one.kind === 'note').map((one) => one.text)
+  assert.deepEqual(notes, [], JSON.stringify(notes))
+  const logged = h.seen.log.filter(([event]) => event === 'tool-failed').map(([, data]) => data)
+  assert.equal(logged.length, 1)
+  assert.equal(logged[0].name, 'mcp__stock__check_stock')
+  assert.equal(logged[0].error, 'Error: 403')
 })
 
-test('模型自己改文件、读文件出错（dsh 的保护，下一步自己改好）：对话里不说，日志里记着', async () => {
+test('工具失败（不管是哪个工具）：对话里都不出那一行，日志里都记着', async () => {
   const h = harness({
-    toolFailNote: (name) => `「${name}」这次没调通，没拿到结果`,
     runTask: (options, seen, kit) => {
       options.onEvent({ type: 'tool-call', taskId: options.taskId, at: 1, name: 'edit' })
       options.onEvent({ type: 'tool-failed', taskId: options.taskId, at: 2, name: 'edit', error: 'Error: old_string matched 2 times' })
@@ -1182,9 +1230,9 @@ test('模型自己改文件、读文件出错（dsh 的保护，下一步自己�
   h.runner.act({ type: 'send', text: '写一份周报' })
   await settled(h.runner, 'done')
   const notes = h.runner.view().flow.filter((one) => one.kind === 'note').map((one) => one.text)
-  assert.deepEqual(notes, ['「web_fetch」这次没调通，没拿到结果'], JSON.stringify(notes))
+  assert.deepEqual(notes, [], JSON.stringify(notes))
   const logged = h.seen.log.filter(([event]) => event === 'tool-failed').map(([, data]) => data)
-  assert.deepEqual(logged.map((one) => [one.name, one.quiet]), [['edit', true], ['write', true], ['web_fetch', false]])
+  assert.deepEqual(logged.map((one) => one.name), ['edit', 'write', 'web_fetch'])
   assert.equal(logged[0].error, 'Error: old_string matched 2 times')
 })
 

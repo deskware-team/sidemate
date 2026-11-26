@@ -17,6 +17,13 @@ test('the bundled writing skill has a valid dsh name and usage instructions', ()
   assert.match(text, /用 Office 技能（或随包 python-docx）把完整稿子生成 Word/)
 })
 
+test('the writing skill stays out of plain search and Q&A turns (decided 11-26)', () => {
+  const text = readFileSync(resolve(skillRoot, 'SKILL.md'), 'utf8')
+  const when = text.match(/^whenToUse:\s*([^\r\n]+)$/m)?.[1] ?? ''
+  assert.match(when, /要交出去的材料/)
+  assert.match(when, /搜一搜、查一查、问个问题、列个清单，又没说要文件时不用：直接在回话里答/)
+})
+
 test('the writing skill stays within the main instruction line budget', () => {
   const text = readFileSync(resolve(skillRoot, 'SKILL.md'), 'utf8')
   const lines = text.split(/\r?\n/)

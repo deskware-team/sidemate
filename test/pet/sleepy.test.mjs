@@ -41,3 +41,21 @@ test('没给时刻就当早困了（宁可睁开也别睡死）', () => {
   assert.equal(sleepyOf({ mode: 'idle' }).sleepy, true)
   assert.equal(sleepyOf({ mode: 'work' }).sleepy, false)
 })
+
+test('level：醒着 / 犯困 / 睡着三档，跟 sleepy 对得上', () => {
+  assert.equal(SLEEPY.asleepMs, 10 * minute + SLEEPY.dozeMs)
+  const lv = (over) => sleepyOf({ mode: 'idle', lastActive: 0, now: over }).level
+  assert.equal(lv(5 * minute), 'awake')
+  assert.equal(lv(10 * minute - 1), 'awake')
+  assert.equal(lv(10 * minute), 'drowsy')
+  assert.equal(lv(SLEEPY.asleepMs - 1), 'drowsy')
+  assert.equal(lv(SLEEPY.asleepMs), 'asleep')
+  assert.equal(lv(30 * minute), 'asleep')
+  assert.equal(sleepyOf({ mode: 'idle' }).level, 'asleep') // 没给时刻：早就没动静了
+  // 鼠标在跟前不算没动静，档位也回醒着
+  assert.equal(sleepyOf({ mode: 'idle', lastActive: 0, now: 30 * minute, near: true }).level, 'awake')
+  assert.equal(sleepyOf({ mode: 'work', lastActive: 0, now: 30 * minute }).level, 'awake')
+  // 老的 sleepy 布尔保留：10 分钟一道坎
+  assert.equal(sleepyOf({ mode: 'idle', lastActive: 0, now: 10 * minute }).sleepy, true)
+  assert.equal(sleepyOf({ mode: 'idle', lastActive: 0, now: 10 * minute - 1 }).sleepy, false)
+})

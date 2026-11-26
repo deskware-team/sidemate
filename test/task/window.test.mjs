@@ -60,14 +60,14 @@ test('task window scenes', { skip: process.env.SIDEMATE_TASKWIN ? false : 'set S
     assert.equal(has({ type: 'send', text: '汇成本周周报' }), true)
     assert.equal(has({ type: 'stop' }), true)
     assert.equal(has({ type: 'save-as', path: CARD }), true)
-    assert.equal(has({ type: 'reveal', path: CARD }), true)
+    assert.equal(has({ type: 'preview', path: CARD }), true)
     assert.equal(has({ type: 'retry' }), true)
     assert.equal(has({ type: 'settings' }), true)
     assert.equal(has({ type: 'remove', path: MATS[0] }), true)
     assert.equal(has({ type: 'add' }), true)
     // 改成范本 / 改成材料没了：页面不再发 move
     assert.equal(acts.some((one) => one.type === 'move'), false)
-    assert.equal(has({ type: 'open-folder', path: FOLDER }), true)
+    assert.equal(has({ type: 'preview-folder', path: FOLDER }), true)
     assert.equal(has({ type: 'new' }), true)
     // 问装不装：装上、不装两个都发回主进程（看说明全文是页面自己的事）
     assert.deepEqual(scene('问装不装'), [
@@ -139,23 +139,23 @@ test('task window scenes', { skip: process.env.SIDEMATE_TASKWIN ? false : 'set S
     assert.deepEqual(measured.openClicks, [{ type: 'save-as', path: CARD }])
     assert.deepEqual(measured.stopClicks, [{ type: 'stop' }])
     // 点击区域（真鼠标）：胶囊整块（左缘内 4px、正中、右缘内 4px）都弹历史下拉、
-    // 都不发 open-folder；右边「打开文件夹」的小图标才发 open-folder；
+    // 都不发 preview-folder；右边「预览」的小图标才发 preview-folder；
     // 搜框上缘内 2px 点进输入、右键小签弹出菜单
     for (const name of ['left', 'mid', 'right']) {
       const one = measured.hits.capsule[name]
       assert.ok(one, `胶囊 ${name} 没测到：${JSON.stringify(measured.hits)}`)
       assert.equal(one.menu, false, `胶囊 ${name} 没弹出历史下拉：${JSON.stringify(one)}`)
-      assert.deepEqual(one.acts, [], `胶囊 ${name} 不该发 open-folder：${JSON.stringify(one)}`)
+      assert.deepEqual(one.acts, [], `胶囊 ${name} 不该发 preview-folder：${JSON.stringify(one)}`)
       assert.match(one.shadow, /rgb\(34, 32, 28\)/, `胶囊 ${name} 下拉开着时没描深边：${JSON.stringify(one)}`)
     }
-    assert.deepEqual(measured.hits.openfolder, [{ type: 'open-folder', path: FOLDER }], JSON.stringify(measured.hits.openfolder))
+    assert.deepEqual(measured.hits.previewbtn, [{ type: 'preview-folder', path: FOLDER }], JSON.stringify(measured.hits.previewbtn))
     assert.equal(measured.hits.menuOpen, false, JSON.stringify(measured.hits))
     // 胶囊：宽 ≥ 120、高 32
     assert.ok(measured.hits.capsuleBox.w >= 120, `胶囊太窄：${JSON.stringify(measured.hits.capsuleBox)}`)
     assert.equal(measured.hits.capsuleBox.h, 32, JSON.stringify(measured.hits.capsuleBox))
     // 五点打点（中心 + 四角内缩 3px）都落在按钮自己身上
     assert.deepEqual(measured.hits.capsuleHit, ['where-btn', 'where-btn', 'where-btn', 'where-btn', 'where-btn'], JSON.stringify(measured.hits.capsuleHit))
-    assert.deepEqual(measured.hits.openHit, ['openfolder', 'openfolder', 'openfolder', 'openfolder', 'openfolder'], JSON.stringify(measured.hits.openHit))
+    assert.deepEqual(measured.hits.openHit, ['previewbtn', 'previewbtn', 'previewbtn', 'previewbtn', 'previewbtn'], JSON.stringify(measured.hits.openHit))
     // 很长的文件夹名：胶囊不超 240，▾ 还在
     assert.ok(measured.hits.longBox.w <= 240, `胶囊超宽了：${JSON.stringify(measured.hits.longBox)}`)
     assert.ok(measured.hits.longBox.caretW > 0, `▾ 不见了：${JSON.stringify(measured.hits.longBox)}`)

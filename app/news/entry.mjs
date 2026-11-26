@@ -115,9 +115,10 @@ export function unreadTopics({ topics, datesOf, read = {} }) {
 //   topics —— 主题清单（loadTopics 的结果）
 //   datesOf(topic) —— 那个主题出过哪些期（issueDates，从新到旧）
 //   missedOf(topic) —— 那个主题错过的那几天（到点时桌伴没开着）
+//   nameOf(topic, date) —— 那一期生成时的主题名（issueNameOf），不知道给空；跟现在的名字不一样才在菜单里写
 //   read —— 新闻-已读.json 读出来的
 //   onOpenIssue(topicId, date) / onManage() —— 点了干什么，由壳接上
-export function newsMenuTemplate({ topics, datesOf, missedOf, read = {}, today = '', onOpenIssue, onManage } = {}) {
+export function newsMenuTemplate({ topics, datesOf, missedOf, nameOf, read = {}, today = '', onOpenIssue, onManage, busyId = '' } = {}) {
   const open = typeof onOpenIssue === 'function' ? onOpenIssue : () => {}
   const manage = typeof onManage === 'function' ? onManage : () => {}
   const list = (Array.isArray(topics) ? topics : []).filter((topic) => topic && topic.id)
@@ -137,13 +138,23 @@ export function newsMenuTemplate({ topics, datesOf, missedOf, read = {}, today =
           enabled: false,
         }
       }
-      return { label: dayLabel(date, today), click: () => open(topic.id, date) }
+      // 那一期生成时订阅还叫旧名字（后来用户改过名）：日子后面带上当时的名字，免得旧那几期看着像混在别的订阅里
+      const day = dayLabel(date, today)
+      const then = typeof nameOf === 'function' ? String(nameOf(topic, date) ?? '') : ''
+      return {
+        label: then && then !== topic.name ? t('newsMenu.dayWithName', { day, name: then }) : day,
+        click: () => open(topic.id, date),
+      }
     })
     // 一份都还没有的主题：子菜单里一项灰的「还没有新闻」，后面照旧能去管订阅
     const submenu = days.length ? days : [{ label: t('newsMenu.empty'), enabled: false }]
     submenu.push({ type: 'separator' }, { label: t('newsMenu.manage'), click: manage })
+    // 名字后面的记号：正在生成写「生成中」（今天的文件夹开跑时就建了，这时不算有新的）；
+    // 不在生成、有没看的写「● 新」
+    const busy = Boolean(busyId) && topic.id === busyId
+    const flag = busy ? t('newsMenu.busy') : (unreadDate(dates, readMap[topic.id]) ? t('newsMenu.flag') : '')
     return {
-      label: unreadDate(dates, readMap[topic.id]) ? `${topic.name} ${t('newsMenu.flag')}` : topic.name,
+      label: flag ? `${topic.name} ${flag}` : topic.name,
       submenu,
     }
   })

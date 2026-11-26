@@ -5,8 +5,10 @@
 import { join } from 'node:path'
 
 import { markNewsRead, newsMenuTemplate, readNewsRead, unreadTopics } from '../news/entry.mjs'
+import { issueNameOf } from '../news/issue-name.mjs'
 import { missedDates } from '../news/missed.mjs'
 import { issueDates, loadTopics } from '../news/topics.mjs'
+import { runningOf } from '../news/status.mjs'
 import { dataPaths } from '../paths.mjs'
 
 // 红点该不该亮：有没看的早报、且用户手头没在干活。
@@ -38,10 +40,14 @@ export function createNewsEntry({ root, low, topicsFile } = {}) {
         datesOf,
         // 错过的那几天：到点时桌伴没开着，那几天写明「未生成：桌伴未运行」
         missedOf: (topic) => missedDates(lowOf(), topic),
+        // 那几期生成时的名字（订阅后来改过名的话跟现在不一样）：读那一期文件夹里的标题
+        nameOf: (topic, date) => issueNameOf(lowOf(), topic, date),
         read: read(),
         today,
         onOpenIssue,
         onManage,
+        // 正在生成的那一项：名字后面写「生成中」
+        busyId: runningOf()?.topicId || '',
       })
     },
     // 有没看的早报的主题，从新到旧

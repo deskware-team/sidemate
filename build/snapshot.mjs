@@ -32,6 +32,8 @@ export const INCLUDE = [
   'docs/release-0.2.0.en.md',
   'docs/release-0.3.0.md',
   'docs/release-0.3.0.en.md',
+  'docs/release-0.4.0.md',
+  'docs/release-0.4.0.en.md',
 ]
 
 // 明确不拷的（白名单之外也要挡一道，免得以后有人把它加进白名单）。
@@ -49,6 +51,9 @@ const SKIP_DIRS = new Set(['node_modules', 'payload', 'dist', '.installer-cache'
 
 // dev 仓专属、拷过去也没用的文件（里面指向 dev 仓自己的历史）。
 const DEV_ONLY = new Set()
+
+// tools/ 不进公开仓（调试台、A/B 评测这些开发用的工具），测它们的测试也不拷，不然公开仓的 CI 找不到被测的文件。
+export const DEV_ONLY_DIRS = ['test/tools/']
 
 // 公开仓里不该出现的字眼，以及各自的判定方式。
 // 这里用转义写，不把字面落在文件里：这个脚本本身会被拷进公开仓。
@@ -131,10 +136,17 @@ export function scanFile(rel, path) {
   return { rel, hits }
 }
 
+// 第三方原样打包的文件（app/vendor 下的流程图、公式库）不扫：它们一个字节都不能改，
+// 里面碰巧有的英文单词（比如图表库里的「线性」）跟我们的内部字眼同形，不是我们写的。
+export function scanSkipped(rel) {
+  return String(rel).startsWith('app/vendor/')
+}
+
 // 拷完扫一遍：拷过去的所有文件里有没有不该出现的字眼。
 export function scanCopied(dest, copied) {
   const found = []
   for (const rel of copied) {
+    if (scanSkipped(rel)) continue
     const path = join(dest, rel)
     if (!existsSync(path)) continue
     const { hits } = scanFile(rel, path)
@@ -175,7 +187,14 @@ export function snapshot(source = sourceRoot, target = process.argv[2]) {
       continue
     }
     if (statSync(from).isDirectory()) {
-      for (const inner of walk(from)) copyOne(`${rel}/${inner}`, join(from, inner))
+      for (const inner of walk(from)) {
+        const one = `${rel}/${inner}`
+        if (DEV_ONLY_DIRS.some((dir) => one.startsWith(dir))) {
+          skipped.push({ rel: one, reason: '测的是 dev 仓专用工具，公开仓里没有' })
+          continue
+        }
+        copyOne(one, join(from, inner))
+      }
       continue
     }
     copyOne(rel, from)

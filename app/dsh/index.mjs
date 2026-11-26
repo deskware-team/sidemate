@@ -6,13 +6,18 @@ import { maskSecrets } from './secrets.mjs'
 import { reasonForDsh, statusOf } from '../task/codes.mjs'
 import { writeAgentsGuide } from './agents-guide.mjs'
 import { failText, progressText } from './progress.mjs'
+import { phaseOfUpdate, createPhaseEmitter } from './phase.mjs'
 import { createPulse } from './pulse.mjs'
 import { readTokenUsage, sleep, usageCaughtUp } from './usage.mjs'
 import { readTitle } from './title.mjs'
 import { runtimeCarrier } from './proc.mjs'
 import { RETRY_FILE_ENV, writeRetryPlugin } from './retry-plugin.mjs'
+import { STREAM_FILE_ENV, createLiveReplies, writeStreamPlugin } from './stream-plugin.mjs'
 import { MODE_METHOD, QUIET_TITLE_METHOD, STEER_METHOD, plainLogText, writeSteerPlugin } from './steer-plugin.mjs'
 import { createFileWatcher } from './artifacts.mjs'
+import { previewInDaemon } from './preview.mjs'
+import { patchFiles } from './patches.mjs'
+export { patchFiles }
 import { fileBlocks, fileLink, presentedFiles } from './prompt-files.mjs'
 import { createPermissionDesk, permissionReason, permissionTarget } from './permission.mjs'
 import { keyEnv, redact, routeOf, secretList } from './secrets.mjs'
@@ -60,22 +65,6 @@ export function payloadLayout(root = join(repo, 'payload')) {
     dsh: join(root, 'dsh', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
     python: join(root, 'python'),
   }
-}
-
-export function patchFiles() {
-  const files = [
-    join(here, 'office.patch.yml'),
-    join(here, 'skill.patch.yml'),
-    join(here, 'skill-dirs.patch.yml'),
-    join(here, 'ask.patch.yml'),
-    join(here, 'title.patch.yml'),
-    join(here, 'rules.patch.yml'),
-    join(here, 'present.patch.yml'),
-    join(here, 'cache.patch.yml'),
-    join(here, 'safety.patch.yml'),
-    join(here, 'privacy.patch.yml'),
-  ]
-  return files
 }
 
 function keptEnv() {
@@ -156,6 +145,12 @@ export function daemonState() {
   return { running: daemon.dead !== true, sessions: daemon.sessions?.size ?? 0, configStamp: daemon.configStamp }
 }
 
+// 预览一个文件（Word / PPT / Excel → PDF 或 PNG）：交给常驻 dsh 里的 Office 套件服务，回包形状见 ./preview.mjs。
+export function previewFile(request = {}, options = {}) {
+  const home = options.lowRoot ?? appRoot()
+  return previewInDaemon(request, { ...options, lowRoot: home, launch: () => dshLaunch({ ...options, lowRoot: home }) })
+}
+
 // acp 那一行的模型：已配好的模型里第一个能看图的；没有就默认模型。
 // 这一条连接能不能收图片是连接级的（dsh-acp 在 initialize 时按这一行算一次），
 // 桌伴里只有一条连接，所以这一行在起进程时定好，不跟着一轮任务变。
@@ -186,9 +181,10 @@ export function dshLaunch(options) {
   const temp = options.tempDir ?? join(home, 'temp')
   // 重试播报的文件：一个常驻进程一份，所有会话的行都带会话号
   const retryFile = join(temp, 'retry-daemon.log')
+  const streamFile = join(temp, 'stream-daemon.log')
   try {
     mkdirSync(temp, { recursive: true })
-    rmSync(retryFile, { force: true })
+    for (const stale of [retryFile, streamFile]) rmSync(stale, { force: true })
   } catch {
     // 目录写不动：这一轮没有重试播报（模型照样跑，只是等待行不出）
   }
@@ -207,7 +203,8 @@ export function dshLaunch(options) {
     DSH_HOME: dshHome,
     DSH_AGENTS_HOME: agentsHome,
     DSH_PRIMARY_RUNTIME: runtimeCarrier(layout.python, join(home, 'runtime')),
-    DSH_SKILL_DIR: join(repo, 'app', 'skills'),
+    // skillDir 是对比工具（tools/office-ab）用来换技能目录的：给了就用它，没给照旧用仓库里的。
+    DSH_SKILL_DIR: options.skillDir ?? join(repo, 'app', 'skills'),
     // 用户自己的技能放程序数据目录下的 skills\。目录还没有时 dsh 只当它是空的（缺目录是合法的空状态），不报错。
     DSH_USER_SKILL_DIR: appPaths(home).skills,
     TEMP: temp,
@@ -217,6 +214,8 @@ export function dshLaunch(options) {
     // dsh 自己重试的时候，那个小插件把每次重试（种类、第几次、等几秒）写到这个文件，
     // 桌伴一行一行读（见 app/dsh/retry-plugin.mjs）。
     [RETRY_FILE_ENV]: retryFile,
+    // 逐字流的小插件把每个文字增量一行一行写进这个文件（见 app/dsh/stream-plugin.mjs）。
+    [STREAM_FILE_ENV]: streamFile,
   }
   // 钥匙只在真有的时候才进环境：空值完全不设，不放假值。
   if (typeof options.apiKey === 'string' && options.apiKey !== '') env.DEEPSEEK_API_KEY = options.apiKey
@@ -239,9 +238,11 @@ export function dshLaunch(options) {
   // 重试播报的插件：源码现在生成，写进用户目录下的 patches/，跟插话插件一个路子。
   // 写不动就当没有播报：这一轮照常跑，等待行只是不出。
   const retry = writeRetryPlugin({ home })
+  const stream = writeStreamPlugin({ home })
   const patches = []
   if (steer) patches.push(writeOne(home, 'sidemate-steer.patch.yml', steer.patchText))
   if (retry) patches.push(writeOne(home, 'sidemate-retry.patch.yml', retry.patchText))
+  if (stream) patches.push(writeOne(home, 'sidemate-stream.patch.yml', stream.patchText))
   return {
     command: options.node || layout.node,
     args: [layout.dsh, '--profile', 'acp', ...patchFiles().flatMap(file => ['--patch', file]), ...patches.flatMap(file => ['--patch', file])],
@@ -255,6 +256,7 @@ export function dshLaunch(options) {
     steer,
     retry,
     retryFile,
+    streamFile,
     logPath: join(home, 'logs', `${String(options.taskId ?? 'task').replace(/[^\w.-]+/g, '_')}.log`),
   }
 }
@@ -325,12 +327,9 @@ function startRun(options = {}) {
   let configStamp = 0 // 模型选项刷新的次数：等的时候只认新来的那一次
   let configWaiter = null // 等模型选项刷新的人
   let titled = '' // dsh 起好的任务名：报过一次就不再报同一个
-  // 模型这一轮说的话先攒着，等这一轮收场时才发出去：
-  // 工具调用之前的那些是动手前的过程话，不算回答；只有最后一次工具调用之后的那段（没有工具调用就是全部）算回答。
+  // 模型这一轮正在说的这一段话：每开始用一次工具（tool_call）就收住，当一个独立的
+  // 气泡发出去；收场时最后一段（没有工具调用就是全部）也照这么发。
   let replyText = ''
-  // 开工时（还有用户插话以后）模型动手前说的头一句（「好的，我先读这两份文件」）：
-  // 当一个回话气泡先冒出来，用户马上知道它收到了、打算怎么干；后面每一步的过程话照旧不出
-  let ackPending = true
   // 工具调用编号 → 工具名：工具失败时要说出是哪个工具没调通
   const toolNames = new Map()
   let daemon = null
@@ -369,6 +368,9 @@ function startRun(options = {}) {
     return full
   }
   const pulse = createPulse({ emit, quietMs: options.quietMs, tickMs: options.pulseTickMs }) // 状态行上「模型在不在动」（./pulse.mjs）
+  // 阶段（在读、在写、在想）：变了才发（./phase.mjs）
+  const emitPhase = createPhaseEmitter(emit)
+  const live = createLiveReplies({ emit, redact: (text) => redact(text, secrets), news }) // 逐字流的前缀 reply（./stream-plugin.mjs）
 
   // 模型那边失败了：dsh 的码、HTTP 状态和报错原文（打码）带出去，
   // 壳照 dsh 的码挑停下那句、显示那一行（app/task/codes.mjs）
@@ -424,11 +426,11 @@ function startRun(options = {}) {
     onAsk: (info) => emit({ type: 'permission', ...info }),
   })
 
-  // 回话在收场时一次发出去：工具调用之前的那些过程话那时候已经丢掉了。
+  // 收场时最后一段照这么发：流式已经发过一模一样整段的就不重复
   const flushReply = () => {
     const text = redact(replyText, secrets)
     replyText = ''
-    if (text.trim()) emit({ type: 'reply', text })
+    if (text.trim() && !live.already(text)) emit({ type: 'reply', text })
   }
 
   // 这一轮动过的文件：收场时报出去（任务文件夹根目录下的才算产出，见 ./session.mjs）
@@ -442,6 +444,7 @@ function startRun(options = {}) {
     settled = true
     perms.cancel()
     pulse.stop()
+    live.stop()
     if (sessionId) daemon?.unregister(sessionId)
     void (async () => {
       try {
@@ -520,6 +523,8 @@ function startRun(options = {}) {
 
   const onUpdate = (update) => {
     pulse.update(update)
+    // 模型这一会儿在干什么：在读、在写、在想
+    emitPhase(phaseOfUpdate(update))
     // dsh 那边模型选项变了（配置整份重写之后它会报一声）：界面上那个模型下拉跟着换
     if (update.sessionUpdate === 'config_option_update') {
       lastConfigOptions = update.configOptions ?? null
@@ -534,23 +539,20 @@ function startRun(options = {}) {
     }
     if (update.sessionUpdate === 'agent_message_chunk' && update.content?.type === 'text') {
       replyText += update.content.text || ''
+      live.settle(update.content.text || '')
       return
     }
     if (update.sessionUpdate === 'usage_update') {
-      // 这里不回话：这段话后面可能还跟着工具调用，那是动手前的过程话。
+      // 这里不回话：这段话到收住（tool_call）或收场时才发
       writeLog(`usage_update ${JSON.stringify({ used: update.used, size: update.size, cost: update.cost ?? null })}`)
       // 模型每说完一段看一眼名字起好没有：长任务不用等到收尾才换上
       if (!titled) emitTitle()
       return
     }
     if (update.sessionUpdate === 'tool_call') {
-      // 开工（或者用户刚插了话）以后的头一句：先当回话冒出来；别的过程话丢掉，不进回话，也不进对话历史
-      const said = redact(replyText, secrets).trim()
-      // 新闻在后台跑，没人看：不冒
-      if (ackPending && !news && said) {
-        ackPending = false
-        emit({ type: 'reply', text: said })
-      }
+      // 这一段话收住了：当一个独立的气泡发出去（流式发过的用结算整段校准，没发过的补发一次），
+      // 然后换新气泡；新闻那一轮不发（cut 里看）
+      live.cut(replyText)
       replyText = ''
       if (update.title === 'web_search') searches += 1
       // 模型交稿了：这几份是成品（卡上写「文件生成」）
@@ -664,8 +666,6 @@ function startRun(options = {}) {
       const res = await request(STEER_METHOD, { sessionId, text: body, files: links })
       if (res && res.accepted === true) {
         writeLog('steer accepted')
-        // 用户插了一句：模型接下来动手前的那句话当回话冒出来（回应这一句）
-        ackPending = true
         return { ok: true, mode: 'steer' }
       }
       writeLog('steer rejected')
@@ -758,6 +758,7 @@ function startRun(options = {}) {
         onUpdate,
         onPermission,
         onRetry,
+        onStream: live.frame,
         onCrash: (detail) => {
           if (detail?.loop) finish('error', { reason: 'crash', detail: detail.detail || 'exit' })
           else finish('interrupted')

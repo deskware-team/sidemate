@@ -1,0 +1,56 @@
+<!doctype html>
+<meta charset="utf-8">
+<!-- 页面 CSP：默认全关，只放开自己目录下的脚本和样式。
+     img-src 放开 file: 是因为图片和渲出来的页图都在本机文件里；
+     frame-src 里的 file: 留着：套件对某种格式渲图失败时会退回 PDF 查看器（iframe 指向本机文件），
+     网页那个 srcdoc 的 iframe 也靠这一条；
+     style-src / script-src 里的 'unsafe-inline' 是给 srcdoc 那个 iframe 用的：
+     里面的网页继承本页的 CSP，内联样式和脚本要靠这一条才跑得起来。 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data:; frame-src 'self' file:; font-src 'self'; connect-src 'none'">
+<title data-t="preview.title"></title>
+<link rel="stylesheet" href="page.css">
+<div id="winbar">
+  <span id="win-title" data-t="preview.title"></span>
+  <button id="win-close" type="button" data-t-title="frame.close"></button>
+</div>
+<main>
+  <nav id="files">
+    <section class="group" id="done-group">
+      <h2><span data-t="preview.groupDone"></span><span class="group-count" id="done-count"></span></h2>
+      <ul id="done-list"></ul>
+    </section>
+    <div class="divider" id="files-divider" hidden></div>
+    <section class="group" id="material-group">
+      <h2><span data-t="preview.groupMaterial"></span><span class="group-count" id="material-count"></span></h2>
+      <ul id="material-list"></ul>
+    </section>
+  </nav>
+  <section id="right">
+    <header id="head">
+      <div id="head-text">
+        <h1 id="head-name"></h1>
+        <p id="head-note"></p>
+      </div>
+      <div id="head-actions">
+        <button id="btn-open" class="btn" type="button" data-t="preview.open"></button>
+        <button id="btn-reveal" class="btn" type="button" data-t="preview.reveal"></button>
+        <button id="btn-save" class="btn" type="button" data-t="preview.saveAs"></button>
+      </div>
+    </header>
+    <div id="canvas">
+      <p id="loading" data-t="preview.loading" hidden></p>
+      <div id="content"></div>
+    </div>
+    <footer id="foot">
+      <div id="sheets"></div>
+      <span id="pages"></span>
+      <div id="zoom" hidden>
+        <button id="zoom-fit" class="zbtn" type="button" data-t="preview.zoomFit"></button>
+        <button id="zoom-out" class="zbtn" type="button" data-t-title="preview.zoomOut">−</button>
+        <span id="zoom-value"></span>
+        <button id="zoom-in" class="zbtn" type="button" data-t-title="preview.zoomIn">＋</button>
+      </div>
+    </footer>
+  </section>
+</main>
+<script type="module" src="page.js"></script>

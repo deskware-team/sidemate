@@ -2,7 +2,7 @@
 // 换出来的「全部对话」整页。只建节点、管显隐、拿列表；列哪几条、怎么分组都在
 // ./history-view.mjs，打开一条走外面给的 open，列表走外面给的 list。
 
-import { dropdownGroups, emptyText, listParams, openFailedText, pageGroups } from './history-view.mjs'
+import { dropdownGroups, emptyText, listParams, markerOf, openFailedText, pageGroups, statusChanged } from './history-view.mjs'
 import { t } from '../copy/copy.mjs'
 
 // 输入即搜：停这么一下再拿列表，别按一个键拿一次
@@ -81,6 +81,7 @@ export function createHistoryView({ where, panel, list, open }) {
   let pageItems = []
   let pageSeq = 0
   let pageTimer = 0
+  let lastSig = '' // 上次看到的状态签名：变了才重新要列表
 
   function rowEl(row) {
     const btn = el('button', row.now ? 'hrow now' : 'hrow')
@@ -88,9 +89,25 @@ export function createHistoryView({ where, panel, list, open }) {
     btn.dataset.id = row.id
     const title = el('span', 'htitle', row.title)
     title.title = row.title
-    btn.append(title, el('span', 'hmeta', row.time))
+    btn.append(title, metaEl(row, row.time))
     btn.addEventListener('click', () => { void pick(row.id) })
     return btn
+  }
+
+  // 右边那截：状态标记（在跑的是转圈、跑完还没看的是绿点）在时间左边，别的没有
+  function metaEl(row, time) {
+    const meta = el('span', 'hmeta')
+    const mark = markerOf(row.status)
+    if (mark) meta.append(markEl(mark))
+    meta.append(el('span', '', time))
+    return meta
+  }
+
+  // 状态标记本身：一个小转圈或一个小绿点，鼠标停上去有那句话
+  function markEl(mark) {
+    const node = el('span', `hmark ${mark.cls}`, '')
+    node.title = mark.label
+    return node
   }
 
   function renderMenu(items) {
@@ -141,9 +158,14 @@ export function createHistoryView({ where, panel, list, open }) {
     btn.dataset.id = row.id
     const title = el('span', 'htitle', row.title)
     title.title = row.title
-    // 文件夹和时间各一截，中间的空白由样式给（.parts）
+    // 文件夹和时间各一截，中间的空白由样式给（.parts）；状态标记在时间左边
     const meta = el('span', 'hmeta parts')
-    for (const part of row.meta) meta.append(el('span', '', part))
+    const parts = row.meta.slice()
+    const time = parts.pop()
+    for (const part of parts) meta.append(el('span', '', part))
+    const mark = markerOf(row.status)
+    if (mark) meta.append(markEl(mark))
+    if (time) meta.append(el('span', '', time))
     btn.append(title, meta)
     btn.addEventListener('click', () => { void pick(row.id) })
     return btn
@@ -254,6 +276,15 @@ export function createHistoryView({ where, panel, list, open }) {
   function setView(next) {
     if (next && typeof next.currentId === 'string') currentId = next.currentId
     if (menuOpen && currentId !== drawnId) renderMenu(lastItems)
+    // 状态真的变了才重新要一遍列表（每来一个字都要一次太吵）
+    if (next && typeof next.statusSig === 'string') {
+      const changed = statusChanged(lastSig, next.statusSig)
+      lastSig = next.statusSig
+      if (changed) {
+        if (menuOpen) void fetchMenu()
+        if (pageOn) void fetchPage()
+      }
+    }
   }
 
   // 点了外面：收下拉；整页不是浮层，不收

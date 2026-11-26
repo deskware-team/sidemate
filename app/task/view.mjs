@@ -217,6 +217,8 @@ export function toTaskView(state, options = {}) {
     path = { text: t('top.tasks'), title: state.place.dir, open: state.place.dir }
   }
   const cards = state.cards.map(cardOf)
+  // 顶栏那个「预览」按钮：这次对话有成品或材料才显示（主进程算好，页面只管显示）
+  const preview = options.preview && typeof options.preview.path === 'string' ? options.preview : { path: '', count: 0 }
   // 干活中：还没发出去的（干活中挂上的）不锁，其余锁住
   const waiting = phase === 'working' ? new Set(pendingFiles(state).map((one) => one.path)) : null
   const tags = state.files.map((one) => tagOf(one, Boolean(waiting) && !waiting.has(one.path)))
@@ -230,6 +232,8 @@ export function toTaskView(state, options = {}) {
     title: t('sidemate'),
     top: {
       path,
+      // 「预览」按钮：这次对话的成品和材料有几份、文件夹在哪
+      preview: { path: preview.path, count: Number(preview.count) || 0 },
       // 现在这个任务记在哪条对话上：历史下拉里那一条高亮
       historyId: typeof options.historyId === 'string' ? options.historyId : '',
       recent: {
