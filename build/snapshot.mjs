@@ -52,6 +52,9 @@ const SKIP_DIRS = new Set(['node_modules', 'payload', 'dist', '.installer-cache'
 // dev 仓专属、拷过去也没用的文件（里面指向 dev 仓自己的历史）。
 const DEV_ONLY = new Set()
 
+// tools/ 不进公开仓（调试台、A/B 评测这些开发用的工具），测它们的测试也不拷，不然公开仓的 CI 找不到被测的文件。
+export const DEV_ONLY_DIRS = ['test/tools/']
+
 // 公开仓里不该出现的字眼，以及各自的判定方式。
 // 这里用转义写，不把字面落在文件里：这个脚本本身会被拷进公开仓。
 export const FORBIDDEN_RULES = [
@@ -184,7 +187,14 @@ export function snapshot(source = sourceRoot, target = process.argv[2]) {
       continue
     }
     if (statSync(from).isDirectory()) {
-      for (const inner of walk(from)) copyOne(`${rel}/${inner}`, join(from, inner))
+      for (const inner of walk(from)) {
+        const one = `${rel}/${inner}`
+        if (DEV_ONLY_DIRS.some((dir) => one.startsWith(dir))) {
+          skipped.push({ rel: one, reason: '测的是 dev 仓专用工具，公开仓里没有' })
+          continue
+        }
+        copyOne(one, join(from, inner))
+      }
       continue
     }
     copyOne(rel, from)

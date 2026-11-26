@@ -4,7 +4,7 @@
 // 纯文本检查，不拉起 Electron。
 
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -13,8 +13,11 @@ const here = dirname(fileURLToPath(import.meta.url))
 const page = readFileSync(join(here, '../../app/pet/pet.js'), 'utf8')
 const motionSrc = readFileSync(join(here, '../../app/pet/motion.mjs'), 'utf8')
 const posesSrc = readFileSync(join(here, '../../app/pet/poses.mjs'), 'utf8')
-const labHtml = readFileSync(join(here, '../../tools/pet-lab/index.html'), 'utf8')
-const labJs = readFileSync(join(here, '../../tools/pet-lab/lab.js'), 'utf8')
+// 调试台在 tools/ 下，只在开发仓里有；公开仓里没有就跳过最后那条
+const labDir = join(here, '../../tools/pet-lab')
+const hasLab = existsSync(labDir)
+const labHtml = hasLab ? readFileSync(join(labDir, 'index.html'), 'utf8') : ''
+const labJs = hasLab ? readFileSync(join(labDir, 'lab.js'), 'utf8') : ''
 
 test('忙时 near 不跟：onNear 里 busy 就不 setGaze、也不「看到你了」眨眼', () => {
   // busy 在 blink / setGaze 之前就 return（touchActivity 还算动静，犯困照旧）
@@ -44,7 +47,7 @@ test('引擎的 quiet：idle 不东张西望、呼吸一律 false、wakeIn 不�
   assert.match(posesSrc, /if \(st\.quiet\) \{[\s\S]*?return g/)
 })
 
-test('调试台「其它」里有「电脑忙」勾选框，勾上发 busy', () => {
+test('调试台「其它」里有「电脑忙」勾选框，勾上发 busy', { skip: !hasLab && '调试台只在开发仓里' }, () => {
   assert.match(labHtml, /<input type="checkbox" id="busy"> 电脑忙/)
   assert.match(labJs, /getElementById\('busy'\)[\s\S]*?fire\('busy', \{ busy: event\.target\.checked \}\)/)
 })

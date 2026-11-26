@@ -190,3 +190,9 @@ test('third-party bundles under app/vendor are copied but not scanned (they must
   assert.ok(INCLUDE.includes('docs/release-0.4.0.md'))
   assert.ok(INCLUDE.includes('docs/release-0.4.0.en.md'))
 })
+
+test('tests for dev-only tools (tools/ is not public) are left out of the snapshot', async () => {
+  const { DEV_ONLY_DIRS } = await import('../../build/snapshot.mjs')
+  assert.ok(DEV_ONLY_DIRS.includes('test/tools/'))
+  assert.ok(!INCLUDE.includes('tools'))
+})
